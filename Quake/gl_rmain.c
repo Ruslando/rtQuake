@@ -725,6 +725,17 @@ void R_RenderScene (void)
 
 /*
 ================
+R_RenderView_RTX
+================
+*/
+void R_RenderView_RTX (void)
+{
+	
+}
+
+
+/*
+================
 R_RenderView
 ================
 */

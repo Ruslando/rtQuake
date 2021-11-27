@@ -134,8 +134,6 @@ static VkDeviceMemory				depth_buffer_memory;
 static VkImageView					depth_buffer_view;
 static VkDeviceMemory				color_buffers_memory[NUM_COLOR_BUFFERS];
 static VkImageView					color_buffers_view[NUM_COLOR_BUFFERS];
-static VkDeviceMemory				raytrace_buffer_memory;
-static VkImageView					raytrace_buffer_view;
 static VkImage						msaa_color_buffer;
 static VkDeviceMemory				msaa_color_buffer_memory;
 static VkImageView					msaa_color_buffer_view;
@@ -1502,88 +1500,6 @@ static void GL_CreateDepthBuffer(void)
 	GL_SetObjectName((uint64_t)depth_buffer_view, VK_OBJECT_TYPE_IMAGE_VIEW, "Depth Buffer View");
 }
 
-
-static void GL_CreateRayImageBuffer(void)
-{
-	VkResult err;
-
-	Sys_Printf("Creating ray image buffer\n");
-
-	VkImageCreateInfo image_create_info;
-	memset(&image_create_info, 0, sizeof(image_create_info));
-	image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	image_create_info.pNext = NULL;
-	image_create_info.imageType = VK_IMAGE_TYPE_2D;
-	image_create_info.format = vulkan_globals.color_format;
-	image_create_info.extent.width = vid.width;
-	image_create_info.extent.height = vid.height;
-	image_create_info.extent.depth = 1;
-	image_create_info.mipLevels = 1;
-	image_create_info.arrayLayers = 1;
-	image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
-	image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-	image_create_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
-
-	assert(vulkan_globals.ray_image_buffers == VK_NULL_HANDLE);
-	err = vkCreateImage(vulkan_globals.device, &image_create_info, NULL, &vulkan_globals.ray_image_buffers);
-	if (err != VK_SUCCESS)
-		Sys_Error("vkCreateImage failed");
-
-	GL_SetObjectName((uint64_t)vulkan_globals.ray_image_buffers, VK_OBJECT_TYPE_IMAGE, va("Ray Image Buffer"));
-
-	VkMemoryRequirements memory_requirements;
-	vkGetImageMemoryRequirements(vulkan_globals.device, vulkan_globals.ray_image_buffers, &memory_requirements);
-
-	VkMemoryDedicatedAllocateInfoKHR dedicated_allocation_info;
-	memset(&dedicated_allocation_info, 0, sizeof(dedicated_allocation_info));
-	dedicated_allocation_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR;
-	dedicated_allocation_info.image = vulkan_globals.ray_image_buffers;
-
-	VkMemoryAllocateInfo memory_allocate_info;
-	memset(&memory_allocate_info, 0, sizeof(memory_allocate_info));
-	memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-	memory_allocate_info.allocationSize = memory_requirements.size;
-	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
-
-	if (vulkan_globals.dedicated_allocation)
-		memory_allocate_info.pNext = &dedicated_allocation_info;
-
-	assert(raytrace_buffer_memory == VK_NULL_HANDLE);
-	num_vulkan_misc_allocations += 1;
-	err = vkAllocateMemory(vulkan_globals.device, &memory_allocate_info, NULL, &raytrace_buffer_memory);
-	if (err != VK_SUCCESS)
-		Sys_Error("vkAllocateMemory failed");
-
-	GL_SetObjectName((uint64_t)raytrace_buffer_memory, VK_OBJECT_TYPE_DEVICE_MEMORY, va("Ray Image Buffer Memory "));
-
-	err = vkBindImageMemory(vulkan_globals.device, vulkan_globals.ray_image_buffers, raytrace_buffer_memory, 0);
-	if (err != VK_SUCCESS)
-		Sys_Error("vkBindImageMemory failed");
-
-	VkImageViewCreateInfo image_view_create_info;
-	memset(&image_view_create_info, 0, sizeof(image_view_create_info));
-	image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	image_view_create_info.format = vulkan_globals.color_format;
-	image_view_create_info.image = vulkan_globals.ray_image_buffers;
-	image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	image_view_create_info.subresourceRange.baseMipLevel = 0;
-	image_view_create_info.subresourceRange.levelCount = 1;
-	image_view_create_info.subresourceRange.baseArrayLayer = 0;
-	image_view_create_info.subresourceRange.layerCount = 1;
-	image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	image_view_create_info.flags = 0;
-
-	assert(raytrace_buffer_view == VK_NULL_HANDLE);
-	err = vkCreateImageView(vulkan_globals.device, &image_view_create_info, NULL, &raytrace_buffer_view);
-	if (err != VK_SUCCESS)
-		Sys_Error("vkCreateImageView failed");
-
-	GL_SetObjectName((uint64_t)raytrace_buffer_view, VK_OBJECT_TYPE_IMAGE_VIEW, va("Ray Image Buffer View "));
-
-	vulkan_globals.sample_count = VK_SAMPLE_COUNT_1_BIT;
-	vulkan_globals.supersampling = false;
-}
-
 /*
 ===============
 GL_CreateColorBuffer
@@ -1643,7 +1559,7 @@ static void GL_CreateColorBuffer(void)
 		if (err != VK_SUCCESS)
 			Sys_Error("vkAllocateMemory failed");
 
-		GL_SetObjectName((uint64_t)color_buffers_memory[i], VK_OBJECT_TYPE_DEVICE_MEMORY, va("Color Buffer %d", i));
+		GL_SetObjectName((uint64_t)color_buffers_memory[i], VK_OBJECT_TYPE_DEVICE_MEMORY, va("Color Buffer Memory %d", i));
 
 		err = vkBindImageMemory(vulkan_globals.device, vulkan_globals.color_buffers[i], color_buffers_memory[i], 0);
 		if (err != VK_SUCCESS)
@@ -1840,7 +1756,7 @@ static void GL_CreateDescriptorSets(void)
 
 	VkDescriptorImageInfo pt_output_image_info;
 	memset(&pt_output_image_info, 0, sizeof(pt_output_image_info));
-	pt_output_image_info.imageView = raytrace_buffer_view;
+	pt_output_image_info.imageView = color_buffers_view[0];
 	//pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	//pt_output_image_info.sampler = VK_DESCRIPTOR_TYPE_SAMPLER;
@@ -2197,7 +2113,7 @@ static void GL_CreateFrameBuffers(void)
 	framebuffer_create_info.height = vid.height;
 	framebuffer_create_info.layers = 1;
 
-	VkImageView attachments[1] = { raytrace_buffer_view };
+	VkImageView attachments[1] = { color_buffers_view[0] };
 	framebuffer_create_info.pAttachments = attachments;
 
 	assert(raytrace_framebuffer == VK_NULL_HANDLE);
@@ -2220,7 +2136,6 @@ static void GL_CreateRenderResources(void)
 		return;
 	}
 
-	GL_CreateRayImageBuffer();
 	GL_CreateColorBuffer();
 	GL_CreateDepthBuffer();
 	GL_CreateRenderPasses();
@@ -2384,26 +2299,44 @@ qboolean GL_BeginRendering(int* x, int* y, int* width, int* height)
 	render_area.extent.width = vid.width;
 	render_area.extent.height = vid.height;
 
-	VkClearValue depth_clear_value;
-	depth_clear_value.depthStencil.depth = 0.0f;
-	depth_clear_value.depthStencil.stencil = 0;
-
-	vulkan_globals.main_clear_values[0] = vulkan_globals.color_clear_value;
-	vulkan_globals.main_clear_values[1] = depth_clear_value;
-	vulkan_globals.main_clear_values[2] = vulkan_globals.color_clear_value;
-
-	const qboolean resolve = (vulkan_globals.sample_count != VK_SAMPLE_COUNT_1_BIT);
-
-	memset(&vulkan_globals.main_render_pass_begin_infos, 0, sizeof(vulkan_globals.main_render_pass_begin_infos));
-	for (i = 0; i < 2; ++i)
+	// Main Render Pass Begin Infos
 	{
-		vulkan_globals.main_render_pass_begin_infos[i].sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		vulkan_globals.main_render_pass_begin_infos[i].renderArea = render_area;
-		vulkan_globals.main_render_pass_begin_infos[i].renderPass = vulkan_globals.main_render_pass;
-		vulkan_globals.main_render_pass_begin_infos[i].framebuffer = main_framebuffers[i];
-		vulkan_globals.main_render_pass_begin_infos[i].clearValueCount = resolve ? 3 : 2;
-		vulkan_globals.main_render_pass_begin_infos[i].pClearValues = vulkan_globals.main_clear_values;
+		VkClearValue depth_clear_value;
+		depth_clear_value.depthStencil.depth = 0.0f;
+		depth_clear_value.depthStencil.stencil = 0;
+
+		vulkan_globals.main_clear_values[0] = vulkan_globals.color_clear_value;
+		vulkan_globals.main_clear_values[1] = depth_clear_value;
+		vulkan_globals.main_clear_values[2] = vulkan_globals.color_clear_value;
+
+		const qboolean resolve = (vulkan_globals.sample_count != VK_SAMPLE_COUNT_1_BIT);
+
+		memset(&vulkan_globals.main_render_pass_begin_infos, 0, sizeof(vulkan_globals.main_render_pass_begin_infos));
+		for (i = 0; i < 2; ++i)
+		{
+			vulkan_globals.main_render_pass_begin_infos[i].sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+			vulkan_globals.main_render_pass_begin_infos[i].renderArea = render_area;
+			vulkan_globals.main_render_pass_begin_infos[i].renderPass = vulkan_globals.main_render_pass;
+			vulkan_globals.main_render_pass_begin_infos[i].framebuffer = main_framebuffers[i];
+			vulkan_globals.main_render_pass_begin_infos[i].clearValueCount = resolve ? 3 : 2;
+			vulkan_globals.main_render_pass_begin_infos[i].pClearValues = vulkan_globals.main_clear_values;
+		}
 	}
+
+	// Raytrace Render Pass Begin Infos
+	{
+		vulkan_globals.raygen_clear_values = vulkan_globals.color_clear_value;
+
+		memset(&vulkan_globals.raygen_render_pass_begin_info, 0, sizeof(vulkan_globals.raygen_render_pass_begin_info));
+		
+		vulkan_globals.raygen_render_pass_begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		vulkan_globals.raygen_render_pass_begin_info.renderArea = render_area;
+		vulkan_globals.raygen_render_pass_begin_info.renderPass = vulkan_globals.raygen_render_pass;
+		vulkan_globals.raygen_render_pass_begin_info.framebuffer = raytrace_framebuffer;
+		vulkan_globals.raygen_render_pass_begin_info.clearValueCount = 1;
+		vulkan_globals.raygen_render_pass_begin_info.pClearValues = &vulkan_globals.raygen_clear_values;
+	}
+	
 
 	vkCmdSetScissor(vulkan_globals.command_buffer, 0, 1, &render_area);
 

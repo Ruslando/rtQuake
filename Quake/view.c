@@ -895,25 +895,48 @@ extern vrect_t	scr_vrect;
 
 void V_RenderView (void)
 {
-	if (con_forcedup)
+	// switch between raster and ray tracing
+	
+	// Main (raster) render pass
+	//{
+	//	if (con_forcedup)
+	//	{
+	//		render_warp = false;
+	//		render_pass_index = 0;
+	//		render_scale = 1;
+	//		vkCmdBeginRenderPass(vulkan_globals.command_buffer, &vulkan_globals.main_render_pass_begin_infos[0], VK_SUBPASS_CONTENTS_INLINE);
+	//		return;
+	//	}
+
+	//	if (cl.intermission)
+	//		V_CalcIntermissionRefdef();
+	//	else if (!cl.paused /* && (cl.maxclients > 1 || key_dest == key_game) */)
+	//		V_CalcRefdef();
+
+	//	//johnfitz -- removed lcd code
+
+	//	R_RenderView();
+
+	//	V_PolyBlend(); //johnfitz -- moved here from R_Renderview ();
+	//}
+	
+
+	//Ray tracing render pass
 	{
-		render_warp = false;
-		render_pass_index = 0;
-		render_scale = 1;
-		vkCmdBeginRenderPass(vulkan_globals.command_buffer, &vulkan_globals.main_render_pass_begin_infos[0], VK_SUBPASS_CONTENTS_INLINE);
-		return;
+		if (con_forcedup)
+		{
+			render_warp = false;
+			render_pass_index = 0;	// Altought the render pass is 1 with ray tracing, there can only be one "main" render pass, so its index stays zero
+			render_scale = 1;
+			vkCmdBeginRenderPass(vulkan_globals.command_buffer, &vulkan_globals.raygen_render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
+			return;
+		}
+
+		R_RenderView_RTX();
+
+		vkCmdBeginRenderPass(vulkan_globals.command_buffer, &vulkan_globals.raygen_render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 	}
-
-	if (cl.intermission)
-		V_CalcIntermissionRefdef ();
-	else if (!cl.paused /* && (cl.maxclients > 1 || key_dest == key_game) */)
-		V_CalcRefdef ();
-
-	//johnfitz -- removed lcd code
-
-	R_RenderView ();
-
-	V_PolyBlend (); //johnfitz -- moved here from R_Renderview ();
+	
 }
 
 /*
