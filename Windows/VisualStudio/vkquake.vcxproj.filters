@@ -343,6 +343,18 @@
     <ClCompile Include="..\..\Shaders\Compiled\screen_effects_10bit_scale_sops_comp.c">
       <Filter>Shaders\Compiled</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\gen_ray.c">
+      <Filter>Shaders\Compiled</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\hit_ray.c">
+      <Filter>Shaders\Compiled</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\miss_ray.c">
+      <Filter>Shaders\Compiled</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\r_util.c">
+      <Filter>Renderer</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Quake\snd_codec.h">
@@ -546,6 +558,9 @@
     <ClInclude Include="..\..\Quake\gl_heap.h">
       <Filter>Renderer</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Quake\r_util.h">
+      <Filter>Renderer</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\vkQuake.rc">
@@ -626,6 +641,15 @@
       <Filter>Shaders</Filter>
     </None>
     <None Include="..\..\Shaders\screen_effects_10bit_scale_sops.comp">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\..\Shaders\gen.rgen">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\..\Shaders\hit.rchit">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\..\Shaders\miss.rmiss">
       <Filter>Shaders</Filter>
     </None>
   </ItemGroup>

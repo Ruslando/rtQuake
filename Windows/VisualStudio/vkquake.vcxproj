@@ -278,6 +278,7 @@ copy "$(SolutionDir)\..\SDL2\lib64\*.dll" "$(TargetDir)"</Command>
     <ClCompile Include="..\..\Quake\r_part.c" />
     <ClCompile Include="..\..\Quake\r_part_fte.c" />
     <ClCompile Include="..\..\Quake\r_sprite.c" />
+    <ClCompile Include="..\..\Quake\r_util.c" />
     <ClCompile Include="..\..\Quake\r_world.c" />
     <ClCompile Include="..\..\Quake\sbar.c" />
     <ClCompile Include="..\..\Quake\snd_codec.c" />
@@ -313,6 +314,9 @@ copy "$(SolutionDir)\..\SDL2\lib64\*.dll" "$(TargetDir)"</Command>
     <ClCompile Include="..\..\Shaders\Compiled\basic_notex_frag.c" />
     <ClCompile Include="..\..\Shaders\Compiled\basic_vert.c" />
     <ClCompile Include="..\..\Shaders\Compiled\cs_tex_warp_comp.c" />
+    <ClCompile Include="..\..\Shaders\Compiled\gen_ray.c" />
+    <ClCompile Include="..\..\Shaders\Compiled\hit_ray.c" />
+    <ClCompile Include="..\..\Shaders\Compiled\miss_ray.c" />
     <ClCompile Include="..\..\Shaders\Compiled\postprocess_frag.c" />
     <ClCompile Include="..\..\Shaders\Compiled\postprocess_vert.c" />
     <ClCompile Include="..\..\Shaders\Compiled\screen_effects_10bit_comp.c" />
@@ -374,6 +378,7 @@ copy "$(SolutionDir)\..\SDL2\lib64\*.dll" "$(TargetDir)"</Command>
     <ClInclude Include="..\..\Quake\q_stdinc.h" />
     <ClInclude Include="..\..\Quake\render.h" />
     <ClInclude Include="..\..\Quake\resource.h" />
+    <ClInclude Include="..\..\Quake\r_util.h" />
     <ClInclude Include="..\..\Quake\sbar.h" />
     <ClInclude Include="..\..\Quake\screen.h" />
     <ClInclude Include="..\..\Quake\server.h" />
@@ -411,6 +416,9 @@ copy "$(SolutionDir)\..\SDL2\lib64\*.dll" "$(TargetDir)"</Command>
     <None Include="..\..\Shaders\basic_notex.frag" />
     <None Include="..\..\Shaders\compile.bat" />
     <None Include="..\..\Shaders\cs_tex_warp.comp" />
+    <None Include="..\..\Shaders\gen.rgen" />
+    <None Include="..\..\Shaders\hit.rchit" />
+    <None Include="..\..\Shaders\miss.rmiss" />
     <None Include="..\..\Shaders\postprocess.frag" />
     <None Include="..\..\Shaders\postprocess.vert" />
     <None Include="..\..\Shaders\screen_effects.inc" />
