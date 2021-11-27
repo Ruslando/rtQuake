@@ -154,6 +154,10 @@ static PFN_vkGetSwapchainImagesKHR fpGetSwapchainImagesKHR;
 static PFN_vkAcquireNextImageKHR fpAcquireNextImageKHR;
 static PFN_vkQueuePresentKHR fpQueuePresentKHR;
 static PFN_vkEnumerateInstanceVersion fpEnumerateInstanceVersion;
+
+static PFN_vkCreateRayTracingPipelinesKHR fpCreateRayTracingPipelinesKHR;
+static PFN_vkGetRayTracingShaderGroupHandlesKHR fpGetRayTracingShaderGroupHandlesKHR;
+
 #if defined(VK_EXT_full_screen_exclusive)
 static PFN_vkAcquireFullScreenExclusiveModeEXT fpAcquireFullScreenExclusiveModeEXT;
 static PFN_vkReleaseFullScreenExclusiveModeEXT fpReleaseFullScreenExclusiveModeEXT;
@@ -1070,6 +1074,12 @@ static void GL_InitDevice(void)
 	GET_DEVICE_PROC_ADDR(GetSwapchainImagesKHR);
 	GET_DEVICE_PROC_ADDR(AcquireNextImageKHR);
 	GET_DEVICE_PROC_ADDR(QueuePresentKHR);
+
+	GET_DEVICE_PROC_ADDR(CreateRayTracingPipelinesKHR);
+	GET_DEVICE_PROC_ADDR(GetRayTracingShaderGroupHandlesKHR);
+
+	vulkan_globals.fpCreateRayTracingPipelinesKHR = fpCreateRayTracingPipelinesKHR;
+	vulkan_globals.fpGetRayTracingShaderGroupHandlesKHR = fpGetRayTracingShaderGroupHandlesKHR;
 
 	for (i = 0; i < numEnabledExtensions; ++i)
 		Con_Printf("Using %s\n", device_create_info.ppEnabledExtensionNames[i]);

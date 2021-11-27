@@ -215,6 +215,9 @@ SHADER_OBJS = \
 	screen_effects_10bit_scale_comp.o \
 	screen_effects_10bit_scale_sops_comp.o \
 	cs_tex_warp_comp.o \
+	gen_ray.o \
+	hit_ray.o \
+	miss_ray.o \
 	basic_frag.o \
 	basic_notex_frag.o \
 	basic_vert.o \

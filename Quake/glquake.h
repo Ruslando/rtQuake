@@ -212,6 +212,10 @@ typedef struct
 	// Staging buffers
 	int									staging_buffer_size;
 
+	// Device procedures
+	PFN_vkCreateRayTracingPipelinesKHR			fpCreateRayTracingPipelinesKHR;
+	PFN_vkGetRayTracingShaderGroupHandlesKHR	fpGetRayTracingShaderGroupHandlesKHR;
+
 	// Render passes
 	VkRenderPass						main_render_pass;
 	VkClearValue						main_clear_values[4];
@@ -269,6 +273,12 @@ typedef struct
 
 	// Acceleration Structures
 	VkAccelerationStructureKHR			top_level_accel_structure;
+
+	// Ray generation shader regions
+	VkStridedDeviceAddressRegionKHR		rt_gen_region;
+	VkStridedDeviceAddressRegionKHR		rt_miss_region;
+	VkStridedDeviceAddressRegionKHR		rt_hit_region;
+	VkStridedDeviceAddressRegionKHR		rt_call_region;
 
 	// Samplers
 	VkSampler							point_sampler;
