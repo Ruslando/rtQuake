@@ -20,9 +20,9 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{AE77266F-0A23-4F08-A491-369DE664B273}</ProjectGuid>
-    <RootNamespace>vkquake</RootNamespace>
+    <RootNamespace>rtquake</RootNamespace>
     <Keyword>Win32Proj</Keyword>
-    <ProjectName>vkQuake</ProjectName>
+    <ProjectName>rtQuake</ProjectName>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
