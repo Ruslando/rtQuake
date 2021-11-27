@@ -56,29 +56,29 @@ typedef struct {
 	int			bpp;
 } vmode_t;
 
-static vmode_t * modelist = NULL;
+static vmode_t* modelist = NULL;
 static int		nummodes;
 
 static qboolean	vid_initialized = false;
 static qboolean has_focus = true;
 static uint32_t num_images_acquired = 0;
 
-static SDL_Window	*draw_context;
+static SDL_Window* draw_context;
 static SDL_SysWMinfo sys_wm_info;
 
 static qboolean	vid_locked = false; //johnfitz
 static qboolean	vid_changed = false;
 
-static void VID_Menu_Init (void); //johnfitz
-static void VID_Menu_f (void); //johnfitz
-static void VID_MenuDraw (void);
-static void VID_MenuKey (int key);
-static void VID_Restart (qboolean set_mode);
-static void VID_Restart_f (void);
+static void VID_Menu_Init(void); //johnfitz
+static void VID_Menu_f(void); //johnfitz
+static void VID_MenuDraw(void);
+static void VID_MenuKey(int key);
+static void VID_Restart(qboolean set_mode);
+static void VID_Restart_f(void);
 
-static void ClearAllStates (void);
-static void GL_InitInstance (void);
-static void GL_InitDevice (void);
+static void ClearAllStates(void);
+static void GL_InitInstance(void);
+static void GL_InitDevice(void);
 static void GL_CreateFrameBuffers(void);
 static void GL_DestroyRenderResources(void);
 
@@ -90,21 +90,21 @@ extern cvar_t r_particles, host_maxfps;
 //====================================
 
 //johnfitz -- new cvars
-static cvar_t	vid_fullscreen = {"vid_fullscreen", "0", CVAR_ARCHIVE};	// QuakeSpasm, was "1"
-static cvar_t	vid_width = {"vid_width", "800", CVAR_ARCHIVE};		// QuakeSpasm, was 640
-static cvar_t	vid_height = {"vid_height", "600", CVAR_ARCHIVE};	// QuakeSpasm, was 480
-static cvar_t	vid_bpp = {"vid_bpp", "16", CVAR_ARCHIVE};
-static cvar_t	vid_refreshrate = {"vid_refreshrate", "60", CVAR_ARCHIVE};
-static cvar_t	vid_vsync = {"vid_vsync", "0", CVAR_ARCHIVE};
-static cvar_t	vid_desktopfullscreen = {"vid_desktopfullscreen", "0", CVAR_ARCHIVE}; // QuakeSpasm
-static cvar_t	vid_borderless = {"vid_borderless", "0", CVAR_ARCHIVE}; // QuakeSpasm
-cvar_t	vid_filter = {"vid_filter", "0", CVAR_ARCHIVE};
-cvar_t	vid_anisotropic = {"vid_anisotropic", "0", CVAR_ARCHIVE};
-cvar_t vid_fsaa = {"vid_fsaa", "0", CVAR_ARCHIVE};
+static cvar_t	vid_fullscreen = { "vid_fullscreen", "0", CVAR_ARCHIVE };	// QuakeSpasm, was "1"
+static cvar_t	vid_width = { "vid_width", "800", CVAR_ARCHIVE };		// QuakeSpasm, was 640
+static cvar_t	vid_height = { "vid_height", "600", CVAR_ARCHIVE };	// QuakeSpasm, was 480
+static cvar_t	vid_bpp = { "vid_bpp", "16", CVAR_ARCHIVE };
+static cvar_t	vid_refreshrate = { "vid_refreshrate", "60", CVAR_ARCHIVE };
+static cvar_t	vid_vsync = { "vid_vsync", "0", CVAR_ARCHIVE };
+static cvar_t	vid_desktopfullscreen = { "vid_desktopfullscreen", "0", CVAR_ARCHIVE }; // QuakeSpasm
+static cvar_t	vid_borderless = { "vid_borderless", "0", CVAR_ARCHIVE }; // QuakeSpasm
+cvar_t	vid_filter = { "vid_filter", "0", CVAR_ARCHIVE };
+cvar_t	vid_anisotropic = { "vid_anisotropic", "0", CVAR_ARCHIVE };
+cvar_t vid_fsaa = { "vid_fsaa", "0", CVAR_ARCHIVE };
 cvar_t vid_fsaamode = { "vid_fsaamode", "0", CVAR_ARCHIVE };
 
-cvar_t		vid_gamma = {"gamma", "1", CVAR_ARCHIVE}; //johnfitz -- moved here from view.c
-cvar_t		vid_contrast = {"contrast", "1", CVAR_ARCHIVE}; //QuakeSpasm, MarkV
+cvar_t		vid_gamma = { "gamma", "1", CVAR_ARCHIVE }; //johnfitz -- moved here from view.c
+cvar_t		vid_contrast = { "contrast", "1", CVAR_ARCHIVE }; //QuakeSpasm, MarkV
 
 // Vulkan
 static VkInstance					vulkan_instance;
@@ -123,6 +123,7 @@ static VkCommandBuffer				command_buffers[NUM_COMMAND_BUFFERS];
 static VkFence						command_buffer_fences[NUM_COMMAND_BUFFERS];
 static qboolean						command_buffer_submitted[NUM_COMMAND_BUFFERS];
 static VkFramebuffer				main_framebuffers[NUM_COLOR_BUFFERS];
+static VkFramebuffer				raytrace_framebuffer[NUM_COLOR_BUFFERS];
 static VkSemaphore					image_aquired_semaphores[NUM_COMMAND_BUFFERS];
 static VkSemaphore					draw_complete_semaphores[NUM_COMMAND_BUFFERS];
 static VkFramebuffer				ui_framebuffers[MAX_SWAP_CHAIN_IMAGES];
@@ -133,6 +134,8 @@ static VkDeviceMemory				depth_buffer_memory;
 static VkImageView					depth_buffer_view;
 static VkDeviceMemory				color_buffers_memory[NUM_COLOR_BUFFERS];
 static VkImageView					color_buffers_view[NUM_COLOR_BUFFERS];
+static VkDeviceMemory				raytrace_buffer_memory;
+static VkImageView					raytrace_buffer_view;
 static VkImage						msaa_color_buffer;
 static VkDeviceMemory				msaa_color_buffer_memory;
 static VkImageView					msaa_color_buffer_view;
@@ -162,7 +165,7 @@ PFN_vkSetDebugUtilsObjectNameEXT fpSetDebugUtilsObjectNameEXT;
 
 VkDebugUtilsMessengerEXT debug_utils_messenger;
 
-VkBool32 VKAPI_PTR DebugMessageCallback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity, VkDebugUtilsMessageTypeFlagsEXT message_types, const VkDebugUtilsMessengerCallbackDataEXT * callback_data, void * user_data)
+VkBool32 VKAPI_PTR DebugMessageCallback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity, VkDebugUtilsMessageTypeFlagsEXT message_types, const VkDebugUtilsMessengerCallbackDataEXT* callback_data, void* user_data)
 {
 	Sys_Printf("%s\n", callback_data->pMessage);
 	return VK_FALSE;
@@ -196,10 +199,10 @@ static uint32_t current_swapchain_buffer;
 VID_Gamma_Init -- call on init
 ================
 */
-static void VID_Gamma_Init (void)
+static void VID_Gamma_Init(void)
 {
-	Cvar_RegisterVariable (&vid_gamma);
-	Cvar_RegisterVariable (&vid_contrast);
+	Cvar_RegisterVariable(&vid_gamma);
+	Cvar_RegisterVariable(&vid_contrast);
 }
 
 /*
@@ -207,7 +210,7 @@ static void VID_Gamma_Init (void)
 VID_GetCurrentWidth
 ======================
 */
-static int VID_GetCurrentWidth (void)
+static int VID_GetCurrentWidth(void)
 {
 	int w = 0, h = 0;
 	SDL_Vulkan_GetDrawableSize(draw_context, &w, &h);
@@ -219,7 +222,7 @@ static int VID_GetCurrentWidth (void)
 VID_GetCurrentHeight
 =======================
 */
-static int VID_GetCurrentHeight (void)
+static int VID_GetCurrentHeight(void)
 {
 	int w = 0, h = 0;
 	SDL_Vulkan_GetDrawableSize(draw_context, &w, &h);
@@ -231,16 +234,16 @@ static int VID_GetCurrentHeight (void)
 VID_GetCurrentRefreshRate
 ====================
 */
-static int VID_GetCurrentRefreshRate (void)
+static int VID_GetCurrentRefreshRate(void)
 {
 	SDL_DisplayMode mode;
 	int current_display;
-	
+
 	current_display = SDL_GetWindowDisplayIndex(draw_context);
-	
+
 	if (0 != SDL_GetCurrentDisplayMode(current_display, &mode))
 		return DEFAULT_REFRESHRATE;
-	
+
 	return mode.refresh_rate;
 }
 
@@ -249,7 +252,7 @@ static int VID_GetCurrentRefreshRate (void)
 VID_GetCurrentBPP
 ====================
 */
-static int VID_GetCurrentBPP (void)
+static int VID_GetCurrentBPP(void)
 {
 	const Uint32 pixelFormat = SDL_GetWindowPixelFormat(draw_context);
 	return SDL_BITSPERPIXEL(pixelFormat);
@@ -262,7 +265,7 @@ VID_GetFullscreen
 returns true if we are in regular fullscreen or "desktop fullscren"
 ====================
 */
-static qboolean VID_GetFullscreen (void)
+static qboolean VID_GetFullscreen(void)
 {
 	return (SDL_GetWindowFlags(draw_context) & SDL_WINDOW_FULLSCREEN) != 0;
 }
@@ -274,7 +277,7 @@ VID_GetDesktopFullscreen
 returns true if we are specifically in "desktop fullscreen" mode
 ====================
 */
-static qboolean VID_GetDesktopFullscreen (void)
+static qboolean VID_GetDesktopFullscreen(void)
 {
 	return (SDL_GetWindowFlags(draw_context) & SDL_WINDOW_FULLSCREEN_DESKTOP) == SDL_WINDOW_FULLSCREEN_DESKTOP;
 }
@@ -286,7 +289,7 @@ VID_GetWindow
 used by pl_win.c
 ====================
 */
-void *VID_GetWindow (void)
+void* VID_GetWindow(void)
 {
 	return draw_context;
 }
@@ -296,7 +299,7 @@ void *VID_GetWindow (void)
 VID_HasMouseOrInputFocus
 ====================
 */
-qboolean VID_HasMouseOrInputFocus (void)
+qboolean VID_HasMouseOrInputFocus(void)
 {
 	return (SDL_GetWindowFlags(draw_context) & (SDL_WINDOW_MOUSE_FOCUS | SDL_WINDOW_INPUT_FOCUS)) != 0;
 }
@@ -306,7 +309,7 @@ qboolean VID_HasMouseOrInputFocus (void)
 VID_IsMinimized
 ====================
 */
-qboolean VID_IsMinimized (void)
+qboolean VID_IsMinimized(void)
 {
 	return !(SDL_GetWindowFlags(draw_context) & SDL_WINDOW_SHOWN);
 }
@@ -323,7 +326,7 @@ This is passed to SDL_SetWindowDisplayMode to specify a pixel format
 with the requested bpp. If we didn't care about bpp we could just pass NULL.
 ================
 */
-static SDL_DisplayMode *VID_SDL2_GetDisplayMode(int width, int height, int refreshrate, int bpp)
+static SDL_DisplayMode* VID_SDL2_GetDisplayMode(int width, int height, int refreshrate, int bpp)
 {
 	static SDL_DisplayMode mode;
 	const int sdlmodes = SDL_GetNumDisplayModes(0);
@@ -333,7 +336,7 @@ static SDL_DisplayMode *VID_SDL2_GetDisplayMode(int width, int height, int refre
 	{
 		if (SDL_GetDisplayMode(0, i, &mode) != 0)
 			continue;
-		
+
 		if (mode.w == width && mode.h == height
 			&& SDL_BITSPERPIXEL(mode.format) == bpp
 			&& mode.refresh_rate == refreshrate)
@@ -349,12 +352,12 @@ static SDL_DisplayMode *VID_SDL2_GetDisplayMode(int width, int height, int refre
 VID_ValidMode
 ================
 */
-static qboolean VID_ValidMode (int width, int height, int refreshrate, int bpp, qboolean fullscreen)
+static qboolean VID_ValidMode(int width, int height, int refreshrate, int bpp, qboolean fullscreen)
 {
-// ignore width / height / bpp if vid_desktopfullscreen is enabled
+	// ignore width / height / bpp if vid_desktopfullscreen is enabled
 	if (fullscreen && vid_desktopfullscreen.value)
 		return true;
-	
+
 	if (width < 320)
 		return false;
 
@@ -382,19 +385,19 @@ static qboolean VID_ValidMode (int width, int height, int refreshrate, int bpp, 
 VID_SetMode
 ================
 */
-static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qboolean fullscreen)
+static qboolean VID_SetMode(int width, int height, int refreshrate, int bpp, qboolean fullscreen)
 {
 	int		temp;
 	Uint32	flags;
 	char		caption[50];
 	int		previous_display;
-	
+
 	// so Con_Printfs don't mess us up by forcing vid and snd updates
 	temp = scr_disabled_for_loading;
 	scr_disabled_for_loading = true;
 
-	CDAudio_Pause ();
-	BGM_Pause ();
+	CDAudio_Pause();
+	BGM_Pause();
 
 	q_snprintf(caption, sizeof(caption), "vkQuake " VKQUAKE_VER_STRING);
 
@@ -407,14 +410,14 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 			flags |= SDL_WINDOW_BORDERLESS;
 		else if (!fullscreen)
 			flags |= SDL_WINDOW_RESIZABLE;
-		
-		draw_context = SDL_CreateWindow (caption, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, flags);
+
+		draw_context = SDL_CreateWindow(caption, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, flags);
 		if (!draw_context)
-			Sys_Error ("Couldn't create window: %s", SDL_GetError());
+			Sys_Error("Couldn't create window: %s", SDL_GetError());
 
 		SDL_VERSION(&sys_wm_info.version);
-		if(!SDL_GetWindowWMInfo(draw_context,&sys_wm_info))
-			Sys_Error ("Couldn't get window wm info: %s", SDL_GetError());
+		if (!SDL_GetWindowWMInfo(draw_context, &sys_wm_info))
+			Sys_Error("Couldn't get window wm info: %s", SDL_GetError());
 
 		previous_display = -1;
 	}
@@ -424,31 +427,31 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 	}
 
 	/* Ensure the window is not fullscreen */
-	if (VID_GetFullscreen ())
+	if (VID_GetFullscreen())
 	{
-		if (SDL_SetWindowFullscreen (draw_context, 0) != 0)
+		if (SDL_SetWindowFullscreen(draw_context, 0) != 0)
 			Sys_Error("Couldn't set fullscreen state mode: %s", SDL_GetError());
 	}
 
 	/* Set window size and display mode */
-	SDL_SetWindowSize (draw_context, width, height);
+	SDL_SetWindowSize(draw_context, width, height);
 	if (previous_display >= 0)
-		SDL_SetWindowPosition (draw_context, SDL_WINDOWPOS_CENTERED_DISPLAY(previous_display), SDL_WINDOWPOS_CENTERED_DISPLAY(previous_display));
+		SDL_SetWindowPosition(draw_context, SDL_WINDOWPOS_CENTERED_DISPLAY(previous_display), SDL_WINDOWPOS_CENTERED_DISPLAY(previous_display));
 	else
 		SDL_SetWindowPosition(draw_context, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-	SDL_SetWindowDisplayMode (draw_context, VID_SDL2_GetDisplayMode(width, height, refreshrate, bpp));
-	SDL_SetWindowBordered (draw_context, vid_borderless.value ? SDL_FALSE : SDL_TRUE);
+	SDL_SetWindowDisplayMode(draw_context, VID_SDL2_GetDisplayMode(width, height, refreshrate, bpp));
+	SDL_SetWindowBordered(draw_context, vid_borderless.value ? SDL_FALSE : SDL_TRUE);
 
 	/* Make window fullscreen if needed, and show the window */
 
 	if (fullscreen) {
 		const Uint32 flag = vid_desktopfullscreen.value ?
-				SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_FULLSCREEN;
-		if (SDL_SetWindowFullscreen (draw_context, flag) != 0)
-			Sys_Error ("Couldn't set fullscreen state mode: %s", SDL_GetError());
+			SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_FULLSCREEN;
+		if (SDL_SetWindowFullscreen(draw_context, flag) != 0)
+			Sys_Error("Couldn't set fullscreen state mode: %s", SDL_GetError());
 	}
 
-	SDL_ShowWindow (draw_context);
+	SDL_ShowWindow(draw_context);
 
 	vid.width = VID_GetCurrentWidth();
 	vid.height = VID_GetCurrentHeight();
@@ -458,16 +461,16 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 
 	modestate = VID_GetFullscreen() ? MS_FULLSCREEN : MS_WINDOWED;
 
-	CDAudio_Resume ();
-	BGM_Resume ();
+	CDAudio_Resume();
+	BGM_Resume();
 	scr_disabled_for_loading = temp;
 
-// fix the leftover Alt from any Alt-Tab or the like that switched us away
-	ClearAllStates ();
+	// fix the leftover Alt from any Alt-Tab or the like that switched us away
+	ClearAllStates();
 
 	vid.recalc_refdef = 1;
 
-// no pending changes
+	// no pending changes
 	vid_changed = false;
 
 	return true;
@@ -478,7 +481,7 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 VID_Changed_f -- kristian -- notify us that a value has changed that requires a vid_restart
 ===================
 */
-static void VID_Changed_f (cvar_t *var)
+static void VID_Changed_f(cvar_t* var)
 {
 	vid_changed = true;
 }
@@ -488,7 +491,7 @@ static void VID_Changed_f (cvar_t *var)
 VID_FilterChanged_f
 ===================
 */
-static void VID_FilterChanged_f(cvar_t *var)
+static void VID_FilterChanged_f(cvar_t* var)
 {
 	R_InitSamplers();
 }
@@ -498,32 +501,32 @@ static void VID_FilterChanged_f(cvar_t *var)
 VID_Test -- johnfitz -- like vid_restart, but asks for confirmation after switching modes
 ================
 */
-static void VID_Test (void)
+static void VID_Test(void)
 {
 	int old_width, old_height, old_refreshrate, old_bpp, old_fullscreen;
 
 	if (vid_locked || !vid_changed)
 		return;
-//
-// now try the switch
-//
+	//
+	// now try the switch
+	//
 	old_width = VID_GetCurrentWidth();
 	old_height = VID_GetCurrentHeight();
 	old_refreshrate = VID_GetCurrentRefreshRate();
 	old_bpp = VID_GetCurrentBPP();
 	old_fullscreen = VID_GetFullscreen() ? (vulkan_globals.swap_chain_full_screen_exclusive ? 2 : 1) : 0;
-	VID_Restart (true);
+	VID_Restart(true);
 
 	//pop up confirmation dialoge
 	if (!SCR_ModalMessage("Would you like to keep this\nvideo mode? (y/n)\n", 5.0f))
 	{
 		//revert cvars and mode
-		Cvar_SetValueQuick (&vid_width, old_width);
-		Cvar_SetValueQuick (&vid_height, old_height);
-		Cvar_SetValueQuick (&vid_refreshrate, old_refreshrate);
-		Cvar_SetValueQuick (&vid_bpp, old_bpp);
-		Cvar_SetValueQuick (&vid_fullscreen, old_fullscreen);
-		VID_Restart (true);
+		Cvar_SetValueQuick(&vid_width, old_width);
+		Cvar_SetValueQuick(&vid_height, old_height);
+		Cvar_SetValueQuick(&vid_refreshrate, old_refreshrate);
+		Cvar_SetValueQuick(&vid_bpp, old_bpp);
+		Cvar_SetValueQuick(&vid_fullscreen, old_fullscreen);
+		VID_Restart(true);
 	}
 }
 
@@ -532,7 +535,7 @@ static void VID_Test (void)
 VID_Unlock -- johnfitz
 ================
 */
-static void VID_Unlock (void)
+static void VID_Unlock(void)
 {
 	vid_locked = false;
 	VID_SyncCvars();
@@ -549,7 +552,7 @@ Used when changing gamedirs so the current settings override what was saved
 in the config.cfg.
 ================
 */
-void VID_Lock (void)
+void VID_Lock(void)
 {
 	vid_locked = true;
 }
@@ -565,7 +568,7 @@ void VID_Lock (void)
 GL_SetObjectName
 ===============
 */
-void GL_SetObjectName(uint64_t object, VkObjectType object_type, const char * name)
+void GL_SetObjectName(uint64_t object, VkObjectType object_type, const char* name)
 {
 #ifdef _DEBUG
 	if (fpSetDebugUtilsObjectNameEXT && name)
@@ -586,18 +589,18 @@ void GL_SetObjectName(uint64_t object, VkObjectType object_type, const char * na
 GL_InitInstance
 ===============
 */
-static void GL_InitInstance( void )
+static void GL_InitInstance(void)
 {
 	VkResult err;
 	uint32_t i;
 	unsigned int sdl_extension_count;
 	vulkan_globals.debug_utils = false;
 
-	if(!SDL_Vulkan_GetInstanceExtensions(draw_context, &sdl_extension_count, NULL))
+	if (!SDL_Vulkan_GetInstanceExtensions(draw_context, &sdl_extension_count, NULL))
 		Sys_Error("SDL_Vulkan_GetInstanceExtensions failed: %s", SDL_GetError());
 
-	const char ** const instance_extensions = malloc(sizeof(const char *) * (sdl_extension_count + 3));
-	if(!SDL_Vulkan_GetInstanceExtensions(draw_context, &sdl_extension_count, instance_extensions))
+	const char** const instance_extensions = malloc(sizeof(const char*) * (sdl_extension_count + 3));
+	if (!SDL_Vulkan_GetInstanceExtensions(draw_context, &sdl_extension_count, instance_extensions))
 		Sys_Error("SDL_Vulkan_GetInstanceExtensions failed: %s", SDL_GetError());
 
 	uint32_t instance_extension_count;
@@ -609,7 +612,7 @@ static void GL_InitInstance( void )
 	vulkan_globals.get_physical_device_properties_2 = false;
 	if (err == VK_SUCCESS || instance_extension_count > 0)
 	{
-		VkExtensionProperties *extension_props = (VkExtensionProperties *) malloc(sizeof(VkExtensionProperties) * instance_extension_count);
+		VkExtensionProperties* extension_props = (VkExtensionProperties*)malloc(sizeof(VkExtensionProperties) * instance_extension_count);
 		err = vkEnumerateInstanceExtensionProperties(NULL, &instance_extension_count, extension_props);
 
 		for (i = 0; i < instance_extension_count; ++i)
@@ -627,28 +630,28 @@ static void GL_InitInstance( void )
 		free(extension_props);
 	}
 
-	vulkan_globals.vulkan_1_1_available = false;
+	vulkan_globals.vulkan_1_2_available = false;
 	fpGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)SDL_Vulkan_GetVkGetInstanceProcAddr();
 	GET_INSTANCE_PROC_ADDR(EnumerateInstanceVersion);
 	if (fpEnumerateInstanceVersion)
 	{
 		uint32_t api_version = 0;
 		fpEnumerateInstanceVersion(&api_version);
-		if (api_version >= VK_MAKE_VERSION(1, 1, 0))
+		if (api_version >= VK_MAKE_VERSION(1, 2, 0))
 		{
-			Con_Printf("Using Vulkan 1.1\n");
-			vulkan_globals.vulkan_1_1_available = true;
+			Con_Printf("Using Vulkan 1.2\n");
+			vulkan_globals.vulkan_1_2_available = true;
 		}
 	}
 
 	VkApplicationInfo application_info;
 	memset(&application_info, 0, sizeof(application_info));
 	application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-	application_info.pApplicationName = "vkQuake";
-	application_info.applicationVersion = 1;
-	application_info.pEngineName = "vkQuake";
-	application_info.engineVersion = 1;
-	application_info.apiVersion = vulkan_globals.vulkan_1_1_available ? VK_MAKE_VERSION(1, 1, 0) : VK_MAKE_VERSION(1, 0, 0);
+	application_info.pApplicationName = "rtQuake";
+	application_info.applicationVersion = VK_MAKE_VERSION(0, 1, 0);
+	application_info.pEngineName = "rtQuake engine";
+	application_info.engineVersion = VK_MAKE_VERSION(0, 1, 0);
+	application_info.apiVersion = VK_MAKE_VERSION(1, 2, 0);
 
 	VkInstanceCreateInfo instance_create_info;
 	memset(&instance_create_info, 0, sizeof(instance_create_info));
@@ -665,7 +668,7 @@ static void GL_InitInstance( void )
 	if (vulkan_globals.debug_utils)
 		instance_extensions[sdl_extension_count + additionalExtensionCount++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
 
-	const char * const layer_names[] = { "VK_LAYER_KHRONOS_validation" };
+	const char* const layer_names[] = { "VK_LAYER_KHRONOS_validation" };
 	if (vulkan_globals.validation)
 	{
 		Con_Printf("Using VK_LAYER_KHRONOS_validation\n");
@@ -690,14 +693,14 @@ static void GL_InitInstance( void )
 	GET_INSTANCE_PROC_ADDR(GetPhysicalDeviceSurfacePresentModesKHR);
 	GET_INSTANCE_PROC_ADDR(GetSwapchainImagesKHR);
 
-	if(vulkan_globals.get_surface_capabilities_2)
+	if (vulkan_globals.get_surface_capabilities_2)
 		GET_INSTANCE_PROC_ADDR(GetPhysicalDeviceSurfaceCapabilities2KHR);
 
 	for (i = 0; i < (sdl_extension_count + additionalExtensionCount); ++i)
 		Con_Printf("Using %s\n", instance_extensions[i]);
 
 #ifdef _DEBUG
-	if(vulkan_globals.validation)
+	if (vulkan_globals.validation)
 	{
 		Con_Printf("Creating debug report callback\n");
 		GET_INSTANCE_PROC_ADDR(CreateDebugUtilsMessengerEXT);
@@ -725,7 +728,7 @@ static void GL_InitInstance( void )
 GL_InitDevice
 ===============
 */
-static void GL_InitDevice( void )
+static void GL_InitDevice(void)
 {
 	VkResult err;
 	uint32_t i;
@@ -744,11 +747,11 @@ static void GL_InitDevice( void )
 	argIndex = COM_CheckParm("-device");
 	if (argIndex && argIndex < com_argc - 1)
 	{
-		const char *deviceNum = com_argv[argIndex + 1];
+		const char* deviceNum = com_argv[argIndex + 1];
 		deviceIndex = CLAMP(0, atoi(deviceNum) - 1, (int)physical_device_count - 1);
 	}
 
-	VkPhysicalDevice *physical_devices = (VkPhysicalDevice *) malloc(sizeof(VkPhysicalDevice) * physical_device_count);
+	VkPhysicalDevice* physical_devices = (VkPhysicalDevice*)malloc(sizeof(VkPhysicalDevice) * physical_device_count);
 	err = vkEnumeratePhysicalDevices(vulkan_instance, &physical_device_count, physical_devices);
 	vulkan_physical_device = physical_devices[deviceIndex];
 	free(physical_devices);
@@ -759,10 +762,13 @@ static void GL_InitDevice( void )
 	vulkan_globals.swap_chain_full_screen_acquired = false;
 	vulkan_globals.screen_effects_sops = false;
 
+	vulkan_globals.ray_pipeline = false;
+	vulkan_globals.ray_query = false;
+
 	vkGetPhysicalDeviceMemoryProperties(vulkan_physical_device, &vulkan_globals.memory_properties);
 	vkGetPhysicalDeviceProperties(vulkan_physical_device, &vulkan_globals.device_properties);
 
-	switch(vulkan_globals.device_properties.vendorID)
+	switch (vulkan_globals.device_properties.vendorID)
 	{
 	case 0x8086:
 		Con_Printf("Vendor: Intel\n");
@@ -784,7 +790,7 @@ static void GL_InitDevice( void )
 
 	if (err == VK_SUCCESS || device_extension_count > 0)
 	{
-		VkExtensionProperties *device_extensions = (VkExtensionProperties *) malloc(sizeof(VkExtensionProperties) * device_extension_count);
+		VkExtensionProperties* device_extensions = (VkExtensionProperties*)malloc(sizeof(VkExtensionProperties) * device_extension_count);
 		err = vkEnumerateDeviceExtensionProperties(vulkan_physical_device, NULL, &device_extension_count, device_extensions);
 
 		for (i = 0; i < device_extension_count; ++i)
@@ -793,6 +799,11 @@ static void GL_InitDevice( void )
 				found_swapchain_extension = true;
 			if (strcmp(VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, device_extensions[i].extensionName) == 0)
 				vulkan_globals.dedicated_allocation = true;
+			// Checking for ray query or rt pipeline extensions
+			if (strcmp(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, device_extensions[i].extensionName) == 0)
+				vulkan_globals.ray_pipeline = true;
+			if (strcmp(VK_KHR_RAY_QUERY_EXTENSION_NAME, device_extensions[i].extensionName) == 0)
+				vulkan_globals.ray_query = true;
 #if defined(VK_EXT_subgroup_size_control)
 			if (strcmp(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME, device_extensions[i].extensionName) == 0)
 				subgroup_size_control = true;
@@ -807,8 +818,18 @@ static void GL_InitDevice( void )
 		free(device_extensions);
 	}
 
-	if(!found_swapchain_extension)
+	if (!found_swapchain_extension)
 		Sys_Error("Couldn't find %s extension", VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+
+	// Checks availability of rt query or pipeline and notifies user
+	if (!vulkan_globals.ray_pipeline && !vulkan_globals.ray_query)
+	{
+		Sys_Error("Picked device is not capable of ray tracing.");
+	}
+	else {
+		// Right now only using pipeline extension
+		Con_Printf("Using %s\n", VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
+	}
 
 	qboolean found_graphics_queue = false;
 
@@ -819,11 +840,11 @@ static void GL_InitDevice( void )
 		Sys_Error("Couldn't find any Vulkan queues");
 	}
 
-	VkQueueFamilyProperties * queue_family_properties = (VkQueueFamilyProperties *)malloc(vulkan_queue_count * sizeof(VkQueueFamilyProperties));
+	VkQueueFamilyProperties* queue_family_properties = (VkQueueFamilyProperties*)malloc(vulkan_queue_count * sizeof(VkQueueFamilyProperties));
 	vkGetPhysicalDeviceQueueFamilyProperties(vulkan_physical_device, &vulkan_queue_count, queue_family_properties);
 
 	// Iterate over each queue to learn whether it supports presenting:
-	VkBool32 *queue_supports_present = (VkBool32 *)malloc(vulkan_queue_count * sizeof(VkBool32));
+	VkBool32* queue_supports_present = (VkBool32*)malloc(vulkan_queue_count * sizeof(VkBool32));
 	for (i = 0; i < vulkan_queue_count; ++i)
 		fpGetPhysicalDeviceSurfaceSupportKHR(vulkan_physical_device, i, vulkan_surface, &queue_supports_present[i]);
 
@@ -840,10 +861,10 @@ static void GL_InitDevice( void )
 	free(queue_supports_present);
 	free(queue_family_properties);
 
-	if(!found_graphics_queue)
+	if (!found_graphics_queue)
 		Sys_Error("Couldn't find graphics queue");
 
-	float queue_priorities[] = {0.0};
+	float queue_priorities[] = { 0.0 };
 	VkDeviceQueueCreateInfo queue_create_info;
 	memset(&queue_create_info, 0, sizeof(queue_create_info));
 	queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -858,7 +879,7 @@ static void GL_InitDevice( void )
 	memset(&physical_device_subgroup_size_control_properties, 0, sizeof(physical_device_subgroup_size_control_properties));
 	VkPhysicalDeviceSubgroupSizeControlFeaturesEXT subgroup_size_control_features;
 	memset(&subgroup_size_control_features, 0, sizeof(subgroup_size_control_features));
-	if (vulkan_globals.vulkan_1_1_available && subgroup_size_control)
+	if (vulkan_globals.vulkan_1_2_available && subgroup_size_control)
 	{
 		memset(&physical_device_subgroup_size_control_properties, 0, sizeof(physical_device_subgroup_size_control_properties));
 		physical_device_subgroup_size_control_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES_EXT;
@@ -887,7 +908,7 @@ static void GL_InitDevice( void )
 
 #if defined(VK_EXT_subgroup_size_control)
 	vulkan_globals.screen_effects_sops =
-		   vulkan_globals.vulkan_1_1_available
+		vulkan_globals.vulkan_1_2_available
 		&& subgroup_size_control
 		&& subgroup_size_control_features.subgroupSizeControl
 		&& subgroup_size_control_features.computeFullSubgroups
@@ -902,45 +923,143 @@ static void GL_InitDevice( void )
 		Con_Printf("Using subgroup operations\n");
 #endif
 
-	const char * device_extensions[5] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+	const char* device_extensions[8] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 	uint32_t numEnabledExtensions = 1;
 	if (vulkan_globals.dedicated_allocation) {
-		device_extensions[ numEnabledExtensions++ ] = VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME;
-		device_extensions[ numEnabledExtensions++ ] = VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME;
+		device_extensions[numEnabledExtensions++] = VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME;
+		device_extensions[numEnabledExtensions++] = VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME;
 	}
 #if defined(VK_EXT_subgroup_size_control)
 	if (vulkan_globals.screen_effects_sops)
-		device_extensions[ numEnabledExtensions++ ] = VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME;
+		device_extensions[numEnabledExtensions++] = VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME;
 #endif
 #if defined(VK_EXT_full_screen_exclusive)
 	if (vulkan_globals.full_screen_exclusive) {
-		device_extensions[ numEnabledExtensions++ ] = VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME;
+		device_extensions[numEnabledExtensions++] = VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME;
 	}
 #endif
+	//Ray tracing pipeline extension
+	device_extensions[numEnabledExtensions++] = VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME;
+	device_extensions[numEnabledExtensions++] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
+	device_extensions[numEnabledExtensions++] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
 
 	const VkBool32 extended_format_support = vulkan_physical_device_features.shaderStorageImageExtendedFormats;
-	const VkBool32 sampler_anisotropic = vulkan_physical_device_features.samplerAnisotropy;
+	//const VkBool32 sampler_anisotropic = vulkan_physical_device_features.samplerAnisotropy;
 
-	VkPhysicalDeviceFeatures device_features;
+	VkPhysicalDevice16BitStorageFeatures features_16bit_storage = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,
+	};
+	{
+		VkPhysicalDeviceVulkan12Features device_features_1_2 = {
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+			.pNext = &features_16bit_storage
+		};
+		VkPhysicalDeviceFeatures2 device_features = {
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR,
+			.pNext = &device_features_1_2
+		};
+		vkGetPhysicalDeviceFeatures2(vulkan_physical_device, &device_features);
+	}
+
+	VkPhysicalDeviceAccelerationStructurePropertiesKHR accel_struct_properties = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR,
+		.pNext = NULL
+	};
+
+	VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_pipeline_properties = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR,
+		.pNext = &accel_struct_properties
+	};
+
+	VkPhysicalDeviceProperties2 dev_props2 = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+		.pNext = &ray_pipeline_properties,
+	};
+
+	vkGetPhysicalDeviceProperties2(vulkan_physical_device, &dev_props2);
+
+	vulkan_globals.acceleration_structure_properties = accel_struct_properties;
+	vulkan_globals.raytracing_pipeline_properties = ray_pipeline_properties;
+
+	VkPhysicalDeviceAccelerationStructureFeaturesKHR physical_device_as_features = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+		.pNext = VK_NULL_HANDLE,
+		.accelerationStructure = VK_TRUE,
+	};
+
+	VkPhysicalDeviceRayTracingPipelineFeaturesKHR physical_device_rt_pipeline_features = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+		.pNext = &physical_device_as_features,
+		.rayTracingPipeline = VK_TRUE
+	};
+
+	/*VkPhysicalDeviceRayQueryFeaturesKHR physical_device_ray_query_features = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+		.pNext = &physical_device_as_features,
+		.rayQuery = VK_TRUE
+	};*/
+
+	VkPhysicalDeviceVulkan12Features device_features_vk12 = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+		.descriptorIndexing = VK_TRUE,
+		.shaderFloat16 = VK_TRUE,
+		.shaderSampledImageArrayNonUniformIndexing = VK_TRUE,
+		.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE,
+		.runtimeDescriptorArray = VK_TRUE,
+		.samplerFilterMinmax = VK_TRUE,
+		.bufferDeviceAddress = VK_TRUE,
+		//.bufferDeviceAddressMultiDevice = qvk.device_count > 1 ? VK_TRUE : VK_FALSE,
+		.bufferDeviceAddressMultiDevice = VK_FALSE	// currently dont support SLI / Multi-GPU
+	};
+
+	if (vulkan_globals.ray_query) {
+		// TODO: Remove hardcoded value. For this I use ray tracing pipelines
+		//device_features_vk12.pNext = &physical_device_ray_query_features;
+		device_features_vk12.pNext = &physical_device_rt_pipeline_features;
+	}
+
+	// TODO: Reactive subgroup size control
+	/*#if defined(VK_EXT_subgroup_size_control)
+		device_features_vk12.pNext = &vulkan_globals.screen_effects_sops ? &subgroup_size_control_features : VK_NULL_HANDLE;
+	#endif*/
+
+	VkPhysicalDeviceFeatures features;
+	memset(&features, 0, sizeof(features));
+	features.fillModeNonSolid = VK_TRUE;
+	features.robustBufferAccess = VK_TRUE;
+	features.fullDrawIndexUint32 = VK_TRUE;
+	features.imageCubeArray = VK_TRUE;
+	features.independentBlend = VK_TRUE;
+	features.samplerAnisotropy = VK_TRUE;
+	features.pipelineStatisticsQuery = VK_TRUE;
+	features.shaderStorageImageExtendedFormats = VK_TRUE;
+	features.shaderUniformBufferArrayDynamicIndexing = VK_TRUE;
+	features.shaderSampledImageArrayDynamicIndexing = VK_TRUE;
+	features.shaderStorageBufferArrayDynamicIndexing = VK_TRUE;
+	features.shaderStorageImageArrayDynamicIndexing = VK_TRUE;
+	features.shaderInt16 = VK_TRUE;
+	features.sparseBinding = VK_TRUE;
+
+	VkPhysicalDeviceFeatures2 device_features;
 	memset(&device_features, 0, sizeof(device_features));
-	device_features.shaderStorageImageExtendedFormats = extended_format_support;
-	device_features.samplerAnisotropy = sampler_anisotropic;
-	device_features.sampleRateShading = vulkan_physical_device_features.sampleRateShading;
-	device_features.fillModeNonSolid = vulkan_physical_device_features.fillModeNonSolid;
+	device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR;
+	device_features.pNext = &device_features_vk12;
+	device_features.features = features;
 
-	vulkan_globals.non_solid_fill = (device_features.fillModeNonSolid == VK_TRUE) ? true : false;
+	vulkan_globals.non_solid_fill = (vulkan_physical_device_features.fillModeNonSolid == VK_TRUE) ? true : false;
 
 	VkDeviceCreateInfo device_create_info;
 	memset(&device_create_info, 0, sizeof(device_create_info));
 	device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-#if defined(VK_EXT_subgroup_size_control)
-	device_create_info.pNext = vulkan_globals.screen_effects_sops ? &subgroup_size_control_features : NULL;
-#endif
+	device_create_info.pNext = &device_features;
+	//#if defined(VK_EXT_subgroup_size_control)
+	//	device_create_info.pNext = vulkan_globals.screen_effects_sops ? &subgroup_size_control_features : NULL;
+	//#endif
 	device_create_info.queueCreateInfoCount = 1;
 	device_create_info.pQueueCreateInfos = &queue_create_info;
 	device_create_info.enabledExtensionCount = numEnabledExtensions;
 	device_create_info.ppEnabledExtensionNames = device_extensions;
-	device_create_info.pEnabledFeatures = &device_features;
+	//device_create_info.pEnabledFeatures = &device_features;
 
 	err = vkCreateDevice(vulkan_physical_device, &device_create_info, NULL, &vulkan_globals.device);
 	if (err != VK_SUCCESS)
@@ -953,7 +1072,7 @@ static void GL_InitDevice( void )
 	GET_DEVICE_PROC_ADDR(QueuePresentKHR);
 
 	for (i = 0; i < numEnabledExtensions; ++i)
-		Con_Printf("Using %s\n", device_extensions[i]);
+		Con_Printf("Using %s\n", device_create_info.ppEnabledExtensionNames[i]);
 
 #if defined(VK_EXT_full_screen_exclusive)
 	if (vulkan_globals.full_screen_exclusive)
@@ -977,12 +1096,12 @@ static void GL_InitDevice( void )
 
 	// Find color buffer format
 	vulkan_globals.color_format = VK_FORMAT_R8G8B8A8_UNORM;
-	
+
 	if (extended_format_support == VK_TRUE)
 	{
 		vkGetPhysicalDeviceFormatProperties(vulkan_physical_device, VK_FORMAT_A2B10G10R10_UNORM_PACK32, &format_properties);
 		qboolean a2_b10_g10_r10_support = (format_properties.optimalTilingFeatures & REQUIRED_COLOR_BUFFER_FEATURES) == REQUIRED_COLOR_BUFFER_FEATURES;
-	
+
 		if (a2_b10_g10_r10_support)
 		{
 			Con_Printf("Using A2B10G10R10 color buffer format\n");
@@ -1029,7 +1148,7 @@ static void GL_InitDevice( void )
 GL_InitCommandBuffers
 ===============
 */
-static void GL_InitCommandBuffers( void )
+static void GL_InitCommandBuffers(void)
 {
 	int i;
 
@@ -1067,7 +1186,7 @@ static void GL_InitCommandBuffers( void )
 	memset(&fence_create_info, 0, sizeof(fence_create_info));
 	fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 
-	for (i = 0; i < NUM_COMMAND_BUFFERS; ++i) 
+	for (i = 0; i < NUM_COMMAND_BUFFERS; ++i)
 	{
 		err = vkCreateFence(vulkan_globals.device, &fence_create_info, NULL, &command_buffer_fences[i]);
 		if (err != VK_SUCCESS)
@@ -1220,7 +1339,7 @@ static void GL_CreateRenderPasses()
 
 	GL_SetObjectName((uint64_t)vulkan_globals.main_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "ui");
 
-	if(vulkan_globals.warp_render_pass == VK_NULL_HANDLE)
+	if (vulkan_globals.warp_render_pass == VK_NULL_HANDLE)
 	{
 		// Warp rendering
 		attachment_descriptions[0].format = VK_FORMAT_R8G8B8A8_UNORM;
@@ -1257,15 +1376,15 @@ static void GL_CreateRenderPasses()
 GL_CreateDepthBuffer
 ===============
 */
-static void GL_CreateDepthBuffer( void )
+static void GL_CreateDepthBuffer(void)
 {
 	Sys_Printf("Creating depth buffer\n");
 
-	if(depth_buffer != VK_NULL_HANDLE)
+	if (depth_buffer != VK_NULL_HANDLE)
 		return;
 
 	VkResult err;
-	
+
 	VkImageCreateInfo image_create_info;
 	memset(&image_create_info, 0, sizeof(image_create_info));
 	image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -1343,7 +1462,7 @@ static void GL_CreateDepthBuffer( void )
 GL_CreateColorBuffer
 ===============
 */
-static void GL_CreateColorBuffer( void )
+static void GL_CreateColorBuffer(void)
 {
 	VkResult err;
 	int i;
@@ -1371,7 +1490,7 @@ static void GL_CreateColorBuffer( void )
 		err = vkCreateImage(vulkan_globals.device, &image_create_info, NULL, &vulkan_globals.color_buffers[i]);
 		if (err != VK_SUCCESS)
 			Sys_Error("vkCreateImage failed");
-	
+
 		GL_SetObjectName((uint64_t)vulkan_globals.color_buffers[i], VK_OBJECT_TYPE_IMAGE, va("Color Buffer %d", i));
 
 		VkMemoryRequirements memory_requirements;
@@ -1443,22 +1562,22 @@ static void GL_CreateColorBuffer( void )
 		else if ((fsaa >= 2) && (image_format_properties.sampleCounts & VK_SAMPLE_COUNT_2_BIT))
 			vulkan_globals.sample_count = VK_SAMPLE_COUNT_2_BIT;
 
-		switch(vulkan_globals.sample_count)
+		switch (vulkan_globals.sample_count)
 		{
-			case VK_SAMPLE_COUNT_2_BIT:
-				Sys_Printf("2 AA Samples\n");
-				break;
-			case VK_SAMPLE_COUNT_4_BIT:
-				Sys_Printf("4 AA Samples\n");
-				break;
-			case VK_SAMPLE_COUNT_8_BIT:
-				Sys_Printf("8 AA Samples\n");
-				break;
-			case VK_SAMPLE_COUNT_16_BIT:
-				Sys_Printf("16 AA Samples\n");
-				break;
-			default:
-				break;
+		case VK_SAMPLE_COUNT_2_BIT:
+			Sys_Printf("2 AA Samples\n");
+			break;
+		case VK_SAMPLE_COUNT_4_BIT:
+			Sys_Printf("4 AA Samples\n");
+			break;
+		case VK_SAMPLE_COUNT_8_BIT:
+			Sys_Printf("8 AA Samples\n");
+			break;
+		case VK_SAMPLE_COUNT_16_BIT:
+			Sys_Printf("16 AA Samples\n");
+			break;
+		default:
+			break;
 		}
 	}
 
@@ -1478,7 +1597,7 @@ static void GL_CreateColorBuffer( void )
 			Sys_Error("vkCreateImage failed");
 
 		GL_SetObjectName((uint64_t)msaa_color_buffer, VK_OBJECT_TYPE_IMAGE, "MSAA Color Buffer");
-	
+
 		VkMemoryRequirements memory_requirements;
 		vkGetImageMemoryRequirements(vulkan_globals.device, msaa_color_buffer, &memory_requirements);
 
@@ -1588,6 +1707,40 @@ static void GL_CreateDescriptorSets(void)
 	screen_warp_writes[1].pImageInfo = &output_image_info;
 
 	vkUpdateDescriptorSets(vulkan_globals.device, 2, screen_warp_writes, 0, NULL);
+
+	assert(vulkan_globals.raygen_desc_set == VK_NULL_HANDLE);
+	vulkan_globals.raygen_desc_set = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
+
+	VkDescriptorImageInfo pt_output_image_info;
+	memset(&pt_output_image_info, 0, sizeof(pt_output_image_info));
+	pt_output_image_info.imageView = raytrace_buffer_view;
+	//pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	//pt_output_image_info.sampler = VK_DESCRIPTOR_TYPE_SAMPLER;
+
+	VkWriteDescriptorSetAccelerationStructureKHR desc_accel_struct;
+	memset(&desc_accel_struct, 0, sizeof(desc_accel_struct));
+	desc_accel_struct.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+	desc_accel_struct.accelerationStructureCount = 1;
+	desc_accel_struct.pAccelerationStructures = &vulkan_globals.top_level_accel_structure;
+
+	VkWriteDescriptorSet raygen_writes[2];
+	memset(&raygen_writes, 0, sizeof(raygen_writes));
+	raygen_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[0].pNext = &desc_accel_struct;
+	raygen_writes[0].dstBinding = 0;
+	raygen_writes[0].descriptorCount = 1;
+	raygen_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+	raygen_writes[0].dstSet = vulkan_globals.raygen_desc_set;
+
+	raygen_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[1].dstBinding = 1;
+	raygen_writes[1].descriptorCount = 1;
+	raygen_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	raygen_writes[1].dstSet = vulkan_globals.raygen_desc_set;
+	raygen_writes[1].pImageInfo = &pt_output_image_info;
+
+	vkUpdateDescriptorSets(vulkan_globals.device, 2, raygen_writes, 0, NULL);
 }
 
 /*
@@ -1595,7 +1748,7 @@ static void GL_CreateDescriptorSets(void)
 GL_CreateSwapChain
 ===============
 */
-static qboolean GL_CreateSwapChain( void )
+static qboolean GL_CreateSwapChain(void)
 {
 	uint32_t i;
 	VkResult err;
@@ -1621,7 +1774,7 @@ static qboolean GL_CreateSwapChain( void )
 		full_screen_exclusive_win32_info.sType = VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_WIN32_INFO_EXT;
 		full_screen_exclusive_win32_info.pNext = NULL;
 		full_screen_exclusive_win32_info.hmonitor = monitor;
-		
+
 		memset(&full_screen_exclusive_info, 0, sizeof(full_screen_exclusive_info));
 		full_screen_exclusive_info.sType = VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_INFO_EXT;
 		full_screen_exclusive_info.pNext = &full_screen_exclusive_win32_info;
@@ -1667,7 +1820,7 @@ static qboolean GL_CreateSwapChain( void )
 	if (err != VK_SUCCESS)
 		Sys_Error("Couldn't get surface formats");
 
-	VkSurfaceFormatKHR *surface_formats = (VkSurfaceFormatKHR *)malloc(format_count * sizeof(VkSurfaceFormatKHR));
+	VkSurfaceFormatKHR* surface_formats = (VkSurfaceFormatKHR*)malloc(format_count * sizeof(VkSurfaceFormatKHR));
 	err = fpGetPhysicalDeviceSurfaceFormatsKHR(vulkan_physical_device, vulkan_surface, &format_count, surface_formats);
 	if (err != VK_SUCCESS)
 		Sys_Error("fpGetPhysicalDeviceSurfaceFormatsKHR failed");
@@ -1701,7 +1854,7 @@ static qboolean GL_CreateSwapChain( void )
 	if (err != VK_SUCCESS)
 		Sys_Error("fpGetPhysicalDeviceSurfacePresentModesKHR failed");
 
-	VkPresentModeKHR * present_modes = (VkPresentModeKHR *) malloc(present_mode_count * sizeof(VkPresentModeKHR));
+	VkPresentModeKHR* present_modes = (VkPresentModeKHR*)malloc(present_mode_count * sizeof(VkPresentModeKHR));
 	err = fpGetPhysicalDeviceSurfacePresentModesKHR(vulkan_physical_device, vulkan_surface, &present_mode_count, present_modes);
 	if (err != VK_SUCCESS)
 		Sys_Error("fpGetPhysicalDeviceSurfacePresentModesKHR failed");
@@ -1714,9 +1867,9 @@ static qboolean GL_CreateSwapChain( void )
 		qboolean found_mailbox = false;
 		for (i = 0; i < present_mode_count; ++i)
 		{
-			if(present_modes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR)
+			if (present_modes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR)
 				found_immediate = true;
-			if(present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
+			if (present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
 				found_mailbox = true;
 		}
 
@@ -1728,7 +1881,7 @@ static qboolean GL_CreateSwapChain( void )
 
 	free(present_modes);
 
-	switch(present_mode) {
+	switch (present_mode) {
 	case VK_PRESENT_MODE_FIFO_KHR:
 		Sys_Printf("Using FIFO present mode\n");
 		break;
@@ -1853,7 +2006,7 @@ static qboolean GL_CreateSwapChain( void )
 GL_CreateFrameBuffers
 ===============
 */
-static void GL_CreateFrameBuffers( void )
+static void GL_CreateFrameBuffers(void)
 {
 	uint32_t i;
 
@@ -1861,7 +2014,7 @@ static void GL_CreateFrameBuffers( void )
 
 	VkResult err;
 
-	const qboolean resolve = ( vulkan_globals.sample_count != VK_SAMPLE_COUNT_1_BIT);
+	const qboolean resolve = (vulkan_globals.sample_count != VK_SAMPLE_COUNT_1_BIT);
 
 	for (i = 0; i < NUM_COLOR_BUFFERS; ++i)
 	{
@@ -1913,7 +2066,7 @@ static void GL_CreateFrameBuffers( void )
 GL_CreateRenderResources
 ===============
 */
-static void GL_CreateRenderResources( void )
+static void GL_CreateRenderResources(void)
 {
 	if (!GL_CreateSwapChain()) {
 		render_resources_created = false;
@@ -1935,7 +2088,7 @@ static void GL_CreateRenderResources( void )
 GL_DestroyRenderResources
 ===============
 */
-static void GL_DestroyRenderResources( void )
+static void GL_DestroyRenderResources(void)
 {
 	uint32_t i;
 
@@ -2021,7 +2174,7 @@ static void GL_DestroyRenderResources( void )
 GL_BeginRendering
 =================
 */
-qboolean GL_BeginRendering (int *x, int *y, int *width, int *height)
+qboolean GL_BeginRendering(int* x, int* y, int* width, int* height)
 {
 	int i;
 
@@ -2089,7 +2242,7 @@ qboolean GL_BeginRendering (int *x, int *y, int *width, int *height)
 	vulkan_globals.main_clear_values[2] = vulkan_globals.color_clear_value;
 
 	const qboolean resolve = (vulkan_globals.sample_count != VK_SAMPLE_COUNT_1_BIT);
-	
+
 	memset(&vulkan_globals.main_render_pass_begin_infos, 0, sizeof(vulkan_globals.main_render_pass_begin_infos));
 	for (i = 0; i < 2; ++i)
 	{
@@ -2139,7 +2292,7 @@ qboolean GL_AcquireNextSwapChainImage(void)
 			Sys_Printf("Full screen exclusive acquired\n");
 		}
 	}
-	else if (!vulkan_globals.want_full_screen_exclusive  && vulkan_globals.swap_chain_full_screen_exclusive && vulkan_globals.swap_chain_full_screen_acquired)
+	else if (!vulkan_globals.want_full_screen_exclusive && vulkan_globals.swap_chain_full_screen_exclusive && vulkan_globals.swap_chain_full_screen_acquired)
 	{
 		const VkResult result = fpReleaseFullScreenExclusiveModeEXT(vulkan_globals.device, vulkan_swapchain);
 		if (result == VK_SUCCESS) {
@@ -2159,7 +2312,7 @@ qboolean GL_AcquireNextSwapChainImage(void)
 		vid.restart_next_frame = true;
 		return false;
 	}
-	else if(err == VK_SUBOPTIMAL_KHR)
+	else if (err == VK_SUBOPTIMAL_KHR)
 	{
 		vid.restart_next_frame = true;
 	}
@@ -2189,11 +2342,11 @@ qboolean GL_AcquireNextSwapChainImage(void)
 GL_EndRendering
 =================
 */
-void GL_EndRendering (qboolean swapchain_acquired)
+void GL_EndRendering(qboolean swapchain_acquired)
 {
 	R_SubmitStagingBuffers();
 	R_FlushDynamicBuffers();
-	
+
 	VkResult err;
 
 	if (swapchain_acquired == true) {
@@ -2239,7 +2392,7 @@ void GL_EndRendering (qboolean swapchain_acquired)
 		present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 		present_info.swapchainCount = 1;
 		present_info.pSwapchains = &vulkan_swapchain,
-		present_info.pImageIndices = &current_swapchain_buffer;
+			present_info.pImageIndices = &current_swapchain_buffer;
 		present_info.waitSemaphoreCount = 1;
 		present_info.pWaitSemaphores = &draw_complete_semaphores[current_command_buffer];
 		err = fpQueuePresentKHR(vulkan_globals.queue, &present_info);
@@ -2267,7 +2420,7 @@ void GL_EndRendering (qboolean swapchain_acquired)
 GL_WaitForDeviceIdle
 =================
 */
-void GL_WaitForDeviceIdle (void)
+void GL_WaitForDeviceIdle(void)
 {
 	if (!vulkan_globals.device_idle)
 	{
@@ -2283,7 +2436,7 @@ void GL_WaitForDeviceIdle (void)
 VID_Shutdown
 =================
 */
-void VID_Shutdown (void)
+void VID_Shutdown(void)
 {
 	if (vid_initialized)
 	{
@@ -2306,10 +2459,10 @@ MAIN WINDOW
 ClearAllStates
 ================
 */
-static void ClearAllStates (void)
+static void ClearAllStates(void)
 {
-	Key_ClearStates ();
-	IN_ClearStates ();
+	Key_ClearStates();
+	IN_ClearStates();
 }
 
 
@@ -2324,7 +2477,7 @@ static void ClearAllStates (void)
 VID_DescribeCurrentMode_f
 =================
 */
-static void VID_DescribeCurrentMode_f (void)
+static void VID_DescribeCurrentMode_f(void)
 {
 	if (draw_context)
 		Con_Printf("%dx%dx%d %dHz %s\n",
@@ -2340,7 +2493,7 @@ static void VID_DescribeCurrentMode_f (void)
 VID_DescribeModes_f -- johnfitz -- changed formatting, and added refresh rates after each mode.
 =================
 */
-static void VID_DescribeModes_f (void)
+static void VID_DescribeModes_f(void)
 {
 	int	i;
 	int	lastwidth, lastheight, lastbpp, count;
@@ -2352,15 +2505,15 @@ static void VID_DescribeModes_f (void)
 		if (lastwidth != modelist[i].width || lastheight != modelist[i].height || lastbpp != modelist[i].bpp)
 		{
 			if (count > 0)
-				Con_SafePrintf ("\n");
-			Con_SafePrintf ("   %4i x %4i x %i : %i", modelist[i].width, modelist[i].height, modelist[i].bpp, modelist[i].refreshrate);
+				Con_SafePrintf("\n");
+			Con_SafePrintf("   %4i x %4i x %i : %i", modelist[i].width, modelist[i].height, modelist[i].bpp, modelist[i].refreshrate);
 			lastwidth = modelist[i].width;
 			lastheight = modelist[i].height;
 			lastbpp = modelist[i].bpp;
 			count++;
 		}
 	}
-	Con_Printf ("\n%i modes\n", count);
+	Con_Printf("\n%i modes\n", count);
 }
 
 //==========================================================================
@@ -2374,7 +2527,7 @@ static void VID_DescribeModes_f (void)
 VID_InitModelist
 =================
 */
-static void VID_InitModelist (void)
+static void VID_InitModelist(void)
 {
 	const int sdlmodes = SDL_GetNumDisplayModes(0);
 	int i;
@@ -2401,13 +2554,13 @@ static void VID_InitModelist (void)
 VID_Init
 ===================
 */
-void	VID_Init (void)
+void	VID_Init(void)
 {
 	static char vid_center[] = "SDL_VIDEO_CENTERED=center";
 	int		p, width, height, refreshrate, bpp;
 	int		display_width, display_height, display_refreshrate, display_bpp;
 	qboolean	fullscreen;
-	const char	*read_vars[] = { "vid_fullscreen",
+	const char* read_vars[] = { "vid_fullscreen",
 					 "vid_width",
 					 "vid_height",
 					 "vid_refreshrate",
@@ -2416,41 +2569,41 @@ void	VID_Init (void)
 					 "vid_desktopfullscreen",
 					 "vid_fsaamode",
 					 "vid_fsaa",
-					 "vid_borderless"};
+					 "vid_borderless" };
 #define num_readvars	( sizeof(read_vars)/sizeof(read_vars[0]) )
 
-	Cvar_RegisterVariable (&vid_fullscreen); //johnfitz
-	Cvar_RegisterVariable (&vid_width); //johnfitz
-	Cvar_RegisterVariable (&vid_height); //johnfitz
-	Cvar_RegisterVariable (&vid_refreshrate); //johnfitz
-	Cvar_RegisterVariable (&vid_bpp); //johnfitz
-	Cvar_RegisterVariable (&vid_vsync); //johnfitz
-	Cvar_RegisterVariable (&vid_filter);
-	Cvar_RegisterVariable (&vid_anisotropic);
-	Cvar_RegisterVariable (&vid_fsaamode);
-	Cvar_RegisterVariable (&vid_fsaa);
-	Cvar_RegisterVariable (&vid_desktopfullscreen); //QuakeSpasm
-	Cvar_RegisterVariable (&vid_borderless); //QuakeSpasm
-	Cvar_SetCallback (&vid_fullscreen, VID_Changed_f);
-	Cvar_SetCallback (&vid_width, VID_Changed_f);
-	Cvar_SetCallback (&vid_height, VID_Changed_f);
-	Cvar_SetCallback (&vid_refreshrate, VID_Changed_f);
-	Cvar_SetCallback (&vid_bpp, VID_Changed_f);
-	Cvar_SetCallback (&vid_filter, VID_FilterChanged_f);
-	Cvar_SetCallback (&vid_anisotropic, VID_FilterChanged_f);
-	Cvar_SetCallback (&vid_fsaamode, VID_Changed_f);
-	Cvar_SetCallback (&vid_fsaa, VID_Changed_f);
-	Cvar_SetCallback (&vid_vsync, VID_Changed_f);
-	Cvar_SetCallback (&vid_desktopfullscreen, VID_Changed_f);
-	Cvar_SetCallback (&vid_borderless, VID_Changed_f);
-	
-	Cmd_AddCommand ("vid_unlock", VID_Unlock); //johnfitz
-	Cmd_AddCommand ("vid_restart", VID_Restart_f); //johnfitz
-	Cmd_AddCommand ("vid_test", VID_Test); //johnfitz
-	Cmd_AddCommand ("vid_describecurrentmode", VID_DescribeCurrentMode_f);
-	Cmd_AddCommand ("vid_describemodes", VID_DescribeModes_f);
+	Cvar_RegisterVariable(&vid_fullscreen); //johnfitz
+	Cvar_RegisterVariable(&vid_width); //johnfitz
+	Cvar_RegisterVariable(&vid_height); //johnfitz
+	Cvar_RegisterVariable(&vid_refreshrate); //johnfitz
+	Cvar_RegisterVariable(&vid_bpp); //johnfitz
+	Cvar_RegisterVariable(&vid_vsync); //johnfitz
+	Cvar_RegisterVariable(&vid_filter);
+	Cvar_RegisterVariable(&vid_anisotropic);
+	Cvar_RegisterVariable(&vid_fsaamode);
+	Cvar_RegisterVariable(&vid_fsaa);
+	Cvar_RegisterVariable(&vid_desktopfullscreen); //QuakeSpasm
+	Cvar_RegisterVariable(&vid_borderless); //QuakeSpasm
+	Cvar_SetCallback(&vid_fullscreen, VID_Changed_f);
+	Cvar_SetCallback(&vid_width, VID_Changed_f);
+	Cvar_SetCallback(&vid_height, VID_Changed_f);
+	Cvar_SetCallback(&vid_refreshrate, VID_Changed_f);
+	Cvar_SetCallback(&vid_bpp, VID_Changed_f);
+	Cvar_SetCallback(&vid_filter, VID_FilterChanged_f);
+	Cvar_SetCallback(&vid_anisotropic, VID_FilterChanged_f);
+	Cvar_SetCallback(&vid_fsaamode, VID_Changed_f);
+	Cvar_SetCallback(&vid_fsaa, VID_Changed_f);
+	Cvar_SetCallback(&vid_vsync, VID_Changed_f);
+	Cvar_SetCallback(&vid_desktopfullscreen, VID_Changed_f);
+	Cvar_SetCallback(&vid_borderless, VID_Changed_f);
 
-	putenv (vid_center);	/* SDL_putenv is problematic in versions <= 1.2.9 */
+	Cmd_AddCommand("vid_unlock", VID_Unlock); //johnfitz
+	Cmd_AddCommand("vid_restart", VID_Restart_f); //johnfitz
+	Cmd_AddCommand("vid_test", VID_Test); //johnfitz
+	Cmd_AddCommand("vid_describecurrentmode", VID_DescribeCurrentMode_f);
+	Cmd_AddCommand("vid_describemodes", VID_DescribeModes_f);
+
+	putenv(vid_center);	/* SDL_putenv is problematic in versions <= 1.2.9 */
 
 	if (SDL_InitSubSystem(SDL_INIT_VIDEO) < 0)
 		Sys_Error("Couldn't init SDL video: %s", SDL_GetError());
@@ -2466,7 +2619,7 @@ void	VID_Init (void)
 		display_bpp = SDL_BITSPERPIXEL(mode.format);
 	}
 
-	Cvar_SetValueQuick (&vid_bpp, (float)display_bpp);
+	Cvar_SetValueQuick(&vid_bpp, (float)display_bpp);
 
 	if (CFG_OpenConfig("config.cfg") == 0)
 	{
@@ -2495,30 +2648,30 @@ void	VID_Init (void)
 	else
 	{
 		p = COM_CheckParm("-width");
-		if (p && p < com_argc-1)
+		if (p && p < com_argc - 1)
 		{
-			width = Q_atoi(com_argv[p+1]);
+			width = Q_atoi(com_argv[p + 1]);
 
-			if(!COM_CheckParm("-height"))
+			if (!COM_CheckParm("-height"))
 				height = width * 3 / 4;
 		}
 
 		p = COM_CheckParm("-height");
-		if (p && p < com_argc-1)
+		if (p && p < com_argc - 1)
 		{
-			height = Q_atoi(com_argv[p+1]);
+			height = Q_atoi(com_argv[p + 1]);
 
-			if(!COM_CheckParm("-width"))
+			if (!COM_CheckParm("-width"))
 				width = height * 4 / 3;
 		}
 
 		p = COM_CheckParm("-refreshrate");
-		if (p && p < com_argc-1)
-			refreshrate = Q_atoi(com_argv[p+1]);
+		if (p && p < com_argc - 1)
+			refreshrate = Q_atoi(com_argv[p + 1]);
 
 		p = COM_CheckParm("-bpp");
-		if (p && p < com_argc-1)
-			bpp = Q_atoi(com_argv[p+1]);
+		if (p && p < com_argc - 1)
+			bpp = Q_atoi(com_argv[p + 1]);
 
 		if (COM_CheckParm("-window") || COM_CheckParm("-w"))
 			fullscreen = false;
@@ -2547,9 +2700,9 @@ void	VID_Init (void)
 	vid_initialized = true;
 
 	vid.colormap = host_colormap;
-	vid.fullbright = 256 - LittleLong (*((int *)vid.colormap + 2048));
+	vid.fullbright = 256 - LittleLong(*((int*)vid.colormap + 2048));
 
-	VID_SetMode (width, height, refreshrate, bpp, fullscreen);
+	VID_SetMode(width, height, refreshrate, bpp, fullscreen);
 
 	// set window icon
 	PL_SetWindowIcon();
@@ -2588,7 +2741,7 @@ void	VID_Init (void)
 VID_Restart
 ===================
 */
-static void VID_Restart (qboolean set_mode)
+static void VID_Restart(qboolean set_mode)
 {
 	int width, height, refreshrate, bpp;
 	qboolean fullscreen;
@@ -2603,15 +2756,15 @@ static void VID_Restart (qboolean set_mode)
 	//
 	// validate new mode
 	//
-	if (set_mode && !VID_ValidMode (width, height, refreshrate, bpp, fullscreen))
+	if (set_mode && !VID_ValidMode(width, height, refreshrate, bpp, fullscreen))
 	{
-		Con_Printf ("%dx%dx%d %dHz %s is not a valid mode\n",
-				width, height, bpp, refreshrate, fullscreen? "fullscreen" : "windowed");
+		Con_Printf("%dx%dx%d %dHz %s is not a valid mode\n",
+			width, height, bpp, refreshrate, fullscreen ? "fullscreen" : "windowed");
 		return;
 	}
 
 	scr_initialized = false;
-	
+
 	GL_WaitForDeviceIdle();
 	GL_DestroyRenderResources();
 
@@ -2619,13 +2772,13 @@ static void VID_Restart (qboolean set_mode)
 	// set new mode
 	//
 	if (set_mode)
-		VID_SetMode (width, height, refreshrate, bpp, fullscreen);
+		VID_SetMode(width, height, refreshrate, bpp, fullscreen);
 
 	GL_CreateRenderResources();
 
 	//conwidth and conheight need to be recalculated
-	vid.conwidth = (scr_conwidth.value > 0) ? (int)scr_conwidth.value : (scr_conscale.value > 0) ? (int)(vid.width/scr_conscale.value) : vid.width;
-	vid.conwidth = CLAMP (320, vid.conwidth, vid.width);
+	vid.conwidth = (scr_conwidth.value > 0) ? (int)scr_conwidth.value : (scr_conscale.value > 0) ? (int)(vid.width / scr_conscale.value) : vid.width;
+	vid.conwidth = CLAMP(320, vid.conwidth, vid.width);
 	vid.conwidth &= 0xFFFFFFF8;
 	vid.conheight = vid.conwidth * vid.height / vid.width;
 	//
@@ -2654,7 +2807,7 @@ static void VID_Restart (qboolean set_mode)
 VID_Restart_f -- johnfitz -- change video modes on the fly
 ===================
 */
-static void VID_Restart_f (void)
+static void VID_Restart_f(void)
 {
 	if (vid_locked || !vid_changed)
 		return;
@@ -2667,12 +2820,12 @@ VID_Toggle
 new proc by S.A., called by alt-return key binding.
 ===================
 */
-void	VID_Toggle (void)
+void	VID_Toggle(void)
 {
 	qboolean toggleWorked;
 	Uint32 flags = 0;
 
-	S_ClearBuffer ();
+	S_ClearBuffer();
 
 	if (!VID_GetFullscreen())
 	{
@@ -2682,7 +2835,7 @@ void	VID_Toggle (void)
 	toggleWorked = SDL_SetWindowFullscreen(draw_context, flags) == 0;
 	if (toggleWorked)
 	{
-		Sbar_Changed ();	// Sbar seems to need refreshing
+		Sbar_Changed();	// Sbar seems to need refreshing
 
 		modestate = VID_GetFullscreen() ? MS_FULLSCREEN : MS_WINDOWED;
 
@@ -2716,18 +2869,18 @@ static vid_menu_settings_t menu_settings;
 VID_SyncCvars -- johnfitz -- set vid cvars to match current video mode
 ================
 */
-void VID_SyncCvars (void)
+void VID_SyncCvars(void)
 {
 	if (draw_context)
 	{
 		if (!VID_GetDesktopFullscreen())
 		{
-			Cvar_SetValueQuick (&vid_width, VID_GetCurrentWidth());
-			Cvar_SetValueQuick (&vid_height, VID_GetCurrentHeight());
+			Cvar_SetValueQuick(&vid_width, VID_GetCurrentWidth());
+			Cvar_SetValueQuick(&vid_height, VID_GetCurrentHeight());
 		}
-		Cvar_SetValueQuick (&vid_refreshrate, VID_GetCurrentRefreshRate());
-		Cvar_SetValueQuick (&vid_bpp, VID_GetCurrentBPP());
-		Cvar_SetQuick (&vid_fullscreen, VID_GetFullscreen() ? (vulkan_globals.want_full_screen_exclusive ? "2" : "1") : "0");
+		Cvar_SetValueQuick(&vid_refreshrate, VID_GetCurrentRefreshRate());
+		Cvar_SetValueQuick(&vid_bpp, VID_GetCurrentBPP());
+		Cvar_SetQuick(&vid_fullscreen, VID_GetFullscreen() ? (vulkan_globals.want_full_screen_exclusive ? "2" : "1") : "0");
 		// don't sync vid_desktopfullscreen, it's a user preference that
 		// should persist even if we are in windowed mode.
 	}
@@ -2773,7 +2926,7 @@ enum {
 static int	video_options_cursor = 0;
 
 typedef struct {
-	int width,height;
+	int width, height;
 } vid_menu_mode;
 
 //TODO: replace these fixed-length arrays with hunk_allocated buffers
@@ -2784,14 +2937,14 @@ static int vid_menu_bpps[MAX_BPPS_LIST];
 static int vid_menu_numbpps = 0;
 
 static int vid_menu_rates[MAX_RATES_LIST];
-static int vid_menu_numrates=0;
+static int vid_menu_numrates = 0;
 
 /*
 ================
 VID_Menu_Init
 ================
 */
-static void VID_Menu_Init (void)
+static void VID_Menu_Init(void)
 {
 	int i, j, h, w;
 
@@ -2823,7 +2976,7 @@ VID_Menu_RebuildBppList
 regenerates bpp list based on current vid_width and vid_height
 ================
 */
-static void VID_Menu_RebuildBppList (void)
+static void VID_Menu_RebuildBppList(void)
 {
 	int i, j, b;
 
@@ -2857,7 +3010,7 @@ static void VID_Menu_RebuildBppList (void)
 	//if there are no valid fullscreen bpps for this width/height, just pick one
 	if (vid_menu_numbpps == 0)
 	{
-		Cvar_SetValueQuick (&vid_bpp, (float)modelist[0].bpp);
+		Cvar_SetValueQuick(&vid_bpp, (float)modelist[0].bpp);
 		return;
 	}
 
@@ -2867,7 +3020,7 @@ static void VID_Menu_RebuildBppList (void)
 			break;
 
 	if (i == vid_menu_numbpps)
-		Cvar_SetValueQuick (&vid_bpp, (float)vid_menu_bpps[0]);
+		Cvar_SetValueQuick(&vid_bpp, (float)vid_menu_bpps[0]);
 }
 
 /*
@@ -2877,49 +3030,49 @@ VID_Menu_RebuildRateList
 regenerates rate list based on current vid_width, vid_height and vid_bpp
 ================
 */
-static void VID_Menu_RebuildRateList (void)
+static void VID_Menu_RebuildRateList(void)
 {
-	int i,j,r;
-	
-	vid_menu_numrates=0;
-	
-	for (i=0;i<nummodes;i++)
+	int i, j, r;
+
+	vid_menu_numrates = 0;
+
+	for (i = 0; i < nummodes; i++)
 	{
 		//rate list is limited to rates available with current width/height/bpp
 		if (modelist[i].width != vid_width.value ||
-		    modelist[i].height != vid_height.value ||
-		    modelist[i].bpp != vid_bpp.value)
+			modelist[i].height != vid_height.value ||
+			modelist[i].bpp != vid_bpp.value)
 			continue;
-		
+
 		r = modelist[i].refreshrate;
-		
-		for (j=0;j<vid_menu_numrates;j++)
+
+		for (j = 0; j < vid_menu_numrates; j++)
 		{
 			if (vid_menu_rates[j] == r)
 				break;
 		}
-		
-		if (j==vid_menu_numrates)
+
+		if (j == vid_menu_numrates)
 		{
 			vid_menu_rates[j] = r;
 			vid_menu_numrates++;
 		}
 	}
-	
+
 	//if there are no valid fullscreen refreshrates for this width/height, just pick one
 	if (vid_menu_numrates == 0)
 	{
-		Cvar_SetValue ("vid_refreshrate",(float)modelist[0].refreshrate);
+		Cvar_SetValue("vid_refreshrate", (float)modelist[0].refreshrate);
 		return;
 	}
-	
+
 	//if vid_refreshrate is not in the new list, change vid_refreshrate
-	for (i=0;i<vid_menu_numrates;i++)
+	for (i = 0; i < vid_menu_numrates; i++)
 		if (vid_menu_rates[i] == (int)(vid_refreshrate.value))
 			break;
-	
-	if (i==vid_menu_numrates)
-		Cvar_SetValue ("vid_refreshrate",(float)vid_menu_rates[0]);
+
+	if (i == vid_menu_numrates)
+		Cvar_SetValue("vid_refreshrate", (float)vid_menu_rates[0]);
 }
 
 /*
@@ -2930,7 +3083,7 @@ chooses next resolution in order, then updates vid_width and
 vid_height cvars, then updates bpp and refreshrate lists
 ================
 */
-static void VID_Menu_ChooseNextMode (int dir)
+static void VID_Menu_ChooseNextMode(int dir)
 {
 	int i;
 
@@ -2953,13 +3106,13 @@ static void VID_Menu_ChooseNextMode (int dir)
 			if (i >= vid_menu_nummodes)
 				i = 0;
 			else if (i < 0)
-				i = vid_menu_nummodes-1;
+				i = vid_menu_nummodes - 1;
 		}
 
-		Cvar_SetValueQuick (&vid_width, (float)vid_menu_modes[i].width);
-		Cvar_SetValueQuick (&vid_height, (float)vid_menu_modes[i].height);
-		VID_Menu_RebuildBppList ();
-		VID_Menu_RebuildRateList ();
+		Cvar_SetValueQuick(&vid_width, (float)vid_menu_modes[i].width);
+		Cvar_SetValueQuick(&vid_height, (float)vid_menu_modes[i].height);
+		VID_Menu_RebuildBppList();
+		VID_Menu_RebuildRateList();
 	}
 }
 
@@ -2970,7 +3123,7 @@ VID_Menu_ChooseNextBpp
 chooses next bpp in order, then updates vid_bpp cvar
 ================
 */
-static void VID_Menu_ChooseNextBpp (int dir)
+static void VID_Menu_ChooseNextBpp(int dir)
 {
 	int i;
 
@@ -2992,10 +3145,10 @@ static void VID_Menu_ChooseNextBpp (int dir)
 			if (i >= vid_menu_numbpps)
 				i = 0;
 			else if (i < 0)
-				i = vid_menu_numbpps-1;
+				i = vid_menu_numbpps - 1;
 		}
 
-		Cvar_SetValueQuick (&vid_bpp, (float)vid_menu_bpps[i]);
+		Cvar_SetValueQuick(&vid_bpp, (float)vid_menu_bpps[i]);
 	}
 }
 
@@ -3006,7 +3159,7 @@ VID_Menu_ChooseNextAAMode
 */
 static void VID_Menu_ChooseNextAAMode(int dir)
 {
-	if(vulkan_physical_device_features.sampleRateShading) {
+	if (vulkan_physical_device_features.sampleRateShading) {
 		Cvar_SetValueQuick(&vid_fsaamode, (float)(((int)vid_fsaamode.value + 2 + dir) % 2));
 	}
 }
@@ -3031,7 +3184,7 @@ static void VID_Menu_ChooseNextAASamples(int dir)
 		else
 			value = 2;
 	}
-	else 
+	else
 	{
 		if (value <= 2)
 			value = 0;
@@ -3066,7 +3219,7 @@ static void VID_Menu_ChooseNextRenderScale(int dir)
 		else
 			value = 2;
 	}
-	else 
+	else
 	{
 		if (value <= 2)
 			value = 0;
@@ -3088,14 +3241,14 @@ VID_Menu_ChooseNextMaxFPS
 */
 static void VID_Menu_ChooseNextMaxFPS(int dir)
 {
-	menu_settings.host_maxfps = CLAMP(0, ((menu_settings.host_maxfps + (dir*10)) / 10) * 10, 1000);
+	menu_settings.host_maxfps = CLAMP(0, ((menu_settings.host_maxfps + (dir * 10)) / 10) * 10, 1000);
 }
 /*
 ================
 VID_Menu_ChooseNextWaterWarp
 ================
 */
-static void VID_Menu_ChooseNextWaterWarp (int dir)
+static void VID_Menu_ChooseNextWaterWarp(int dir)
 {
 	menu_settings.r_waterwarp = (menu_settings.r_waterwarp + 3 + dir) % 3;
 }
@@ -3105,7 +3258,7 @@ static void VID_Menu_ChooseNextWaterWarp (int dir)
 VID_Menu_ChooseNextParticles
 ================
 */
-static void VID_Menu_ChooseNextParticles (int dir)
+static void VID_Menu_ChooseNextParticles(int dir)
 {
 	if (dir > 0)
 	{
@@ -3113,7 +3266,7 @@ static void VID_Menu_ChooseNextParticles (int dir)
 			menu_settings.r_particles = 2;
 		else if (menu_settings.r_particles == 2)
 			menu_settings.r_particles = 1;
-		else 
+		else
 			menu_settings.r_particles = 0;
 	}
 	else
@@ -3122,7 +3275,7 @@ static void VID_Menu_ChooseNextParticles (int dir)
 			menu_settings.r_particles = 1;
 		else if (menu_settings.r_particles == 2)
 			menu_settings.r_particles = 0;
-		else 
+		else
 			menu_settings.r_particles = 2;
 	}
 }
@@ -3134,30 +3287,30 @@ VID_Menu_ChooseNextRate
 chooses next refresh rate in order, then updates vid_refreshrate cvar
 ================
 */
-static void VID_Menu_ChooseNextRate (int dir)
+static void VID_Menu_ChooseNextRate(int dir)
 {
 	int i;
-	
-	for (i=0;i<vid_menu_numrates;i++)
+
+	for (i = 0; i < vid_menu_numrates; i++)
 	{
 		if (vid_menu_rates[i] == vid_refreshrate.value)
 			break;
 	}
-	
-	if (i==vid_menu_numrates) //can't find it in list
+
+	if (i == vid_menu_numrates) //can't find it in list
 	{
 		i = 0;
 	}
 	else
 	{
-		i+=dir;
-		if (i>=vid_menu_numrates)
+		i += dir;
+		if (i >= vid_menu_numrates)
 			i = 0;
-		else if (i<0)
-			i = vid_menu_numrates-1;
+		else if (i < 0)
+			i = vid_menu_numrates - 1;
 	}
-	
-	Cvar_SetValue ("vid_refreshrate",(float)vid_menu_rates[i]);
+
+	Cvar_SetValue("vid_refreshrate", (float)vid_menu_rates[i]);
 }
 
 /*
@@ -3165,7 +3318,7 @@ static void VID_Menu_ChooseNextRate (int dir)
 VID_Menu_ChooseNextFullScreenMode
 ================
 */
-static void VID_Menu_ChooseNextFullScreenMode (int dir)
+static void VID_Menu_ChooseNextFullScreenMode(int dir)
 {
 	if (vulkan_globals.full_screen_exclusive)
 		Cvar_SetValueQuick(&vid_fullscreen, (float)(((int)vid_fullscreen.value + 3 + dir) % 3));
@@ -3178,72 +3331,72 @@ static void VID_Menu_ChooseNextFullScreenMode (int dir)
 VID_MenuKey
 ================
 */
-static void VID_MenuKey (int key)
+static void VID_MenuKey(int key)
 {
 	switch (key)
 	{
 	case K_ESCAPE:
-		VID_SyncCvars (); //sync cvars before leaving menu. FIXME: there are other ways to leave menu
-		S_LocalSound ("misc/menu1.wav");
-		M_Menu_Options_f ();
+		VID_SyncCvars(); //sync cvars before leaving menu. FIXME: there are other ways to leave menu
+		S_LocalSound("misc/menu1.wav");
+		M_Menu_Options_f();
 		break;
 
 	case K_UPARROW:
-		S_LocalSound ("misc/menu1.wav");
+		S_LocalSound("misc/menu1.wav");
 		video_options_cursor--;
 		if (video_options_cursor < 0)
-			video_options_cursor = VIDEO_OPTIONS_ITEMS-1;
+			video_options_cursor = VIDEO_OPTIONS_ITEMS - 1;
 		break;
 
 	case K_DOWNARROW:
-		S_LocalSound ("misc/menu1.wav");
+		S_LocalSound("misc/menu1.wav");
 		video_options_cursor++;
 		if (video_options_cursor >= VIDEO_OPTIONS_ITEMS)
 			video_options_cursor = 0;
 		break;
 
 	case K_LEFTARROW:
-		S_LocalSound ("misc/menu3.wav");
+		S_LocalSound("misc/menu3.wav");
 		switch (video_options_cursor)
 		{
 		case VID_OPT_MODE:
-			VID_Menu_ChooseNextMode (1);
+			VID_Menu_ChooseNextMode(1);
 			break;
 		case VID_OPT_BPP:
-			VID_Menu_ChooseNextBpp (1);
+			VID_Menu_ChooseNextBpp(1);
 			break;
 		case VID_OPT_REFRESHRATE:
-			VID_Menu_ChooseNextRate (1);
+			VID_Menu_ChooseNextRate(1);
 			break;
 		case VID_OPT_FULLSCREEN:
 			VID_Menu_ChooseNextFullScreenMode(-1);
 			break;
 		case VID_OPT_VSYNC:
-			Cbuf_AddText ("toggle vid_vsync\n"); // kristian
+			Cbuf_AddText("toggle vid_vsync\n"); // kristian
 			break;
 		case VID_OPT_MAX_FPS:
-			VID_Menu_ChooseNextMaxFPS (-1);
+			VID_Menu_ChooseNextMaxFPS(-1);
 			break;
 		case VID_OPT_ANTIALIASING_SAMPLES:
 			VID_Menu_ChooseNextAASamples(-1);
 			break;
 		case VID_OPT_ANTIALIASING_MODE:
-			VID_Menu_ChooseNextAAMode (-1);
+			VID_Menu_ChooseNextAAMode(-1);
 			break;
 		case VID_OPT_RENDER_SCALE:
-			VID_Menu_ChooseNextRenderScale (-1);
+			VID_Menu_ChooseNextRenderScale(-1);
 			break;
 		case VID_OPT_FILTER:
-			menu_settings.vid_filter = (menu_settings.vid_filter==0)?1:0;
+			menu_settings.vid_filter = (menu_settings.vid_filter == 0) ? 1 : 0;
 			break;
 		case VID_OPT_ANISOTROPY:
-			menu_settings.vid_anisotropic = (menu_settings.vid_anisotropic==0)?1:0;
+			menu_settings.vid_anisotropic = (menu_settings.vid_anisotropic == 0) ? 1 : 0;
 			break;
 		case VID_OPT_UNDERWATER:
-			VID_Menu_ChooseNextWaterWarp (-1);
+			VID_Menu_ChooseNextWaterWarp(-1);
 			break;
 		case VID_OPT_PARTICLES:
-			VID_Menu_ChooseNextParticles (-1);
+			VID_Menu_ChooseNextParticles(-1);
 			break;
 		default:
 			break;
@@ -3251,26 +3404,26 @@ static void VID_MenuKey (int key)
 		break;
 
 	case K_RIGHTARROW:
-		S_LocalSound ("misc/menu3.wav");
+		S_LocalSound("misc/menu3.wav");
 		switch (video_options_cursor)
 		{
 		case VID_OPT_MODE:
-			VID_Menu_ChooseNextMode (-1);
+			VID_Menu_ChooseNextMode(-1);
 			break;
 		case VID_OPT_BPP:
-			VID_Menu_ChooseNextBpp (-1);
+			VID_Menu_ChooseNextBpp(-1);
 			break;
 		case VID_OPT_REFRESHRATE:
-			VID_Menu_ChooseNextRate (-1);
+			VID_Menu_ChooseNextRate(-1);
 			break;
 		case VID_OPT_FULLSCREEN:
 			VID_Menu_ChooseNextFullScreenMode(1);
 			break;
 		case VID_OPT_VSYNC:
-			Cbuf_AddText ("toggle vid_vsync\n");
+			Cbuf_AddText("toggle vid_vsync\n");
 			break;
 		case VID_OPT_MAX_FPS:
-			VID_Menu_ChooseNextMaxFPS (1);
+			VID_Menu_ChooseNextMaxFPS(1);
 			break;
 		case VID_OPT_ANTIALIASING_SAMPLES:
 			VID_Menu_ChooseNextAASamples(1);
@@ -3279,19 +3432,19 @@ static void VID_MenuKey (int key)
 			VID_Menu_ChooseNextAAMode(1);
 			break;
 		case VID_OPT_RENDER_SCALE:
-			VID_Menu_ChooseNextRenderScale (1);
+			VID_Menu_ChooseNextRenderScale(1);
 			break;
 		case VID_OPT_FILTER:
-			menu_settings.vid_filter = (menu_settings.vid_filter==0)?1:0;
+			menu_settings.vid_filter = (menu_settings.vid_filter == 0) ? 1 : 0;
 			break;
 		case VID_OPT_ANISOTROPY:
-			menu_settings.vid_anisotropic = (menu_settings.vid_anisotropic==0)?1:0;
+			menu_settings.vid_anisotropic = (menu_settings.vid_anisotropic == 0) ? 1 : 0;
 			break;
 		case VID_OPT_UNDERWATER:
-			VID_Menu_ChooseNextWaterWarp (1);
+			VID_Menu_ChooseNextWaterWarp(1);
 			break;
 		case VID_OPT_PARTICLES:
-			VID_Menu_ChooseNextParticles (1);
+			VID_Menu_ChooseNextParticles(1);
 			break;
 		default:
 			break;
@@ -3304,43 +3457,43 @@ static void VID_MenuKey (int key)
 		switch (video_options_cursor)
 		{
 		case VID_OPT_MODE:
-			VID_Menu_ChooseNextMode (1);
+			VID_Menu_ChooseNextMode(1);
 			break;
 		case VID_OPT_BPP:
-			VID_Menu_ChooseNextBpp (1);
+			VID_Menu_ChooseNextBpp(1);
 			break;
 		case VID_OPT_REFRESHRATE:
-			VID_Menu_ChooseNextRate (1);
+			VID_Menu_ChooseNextRate(1);
 			break;
 		case VID_OPT_FULLSCREEN:
-			VID_Menu_ChooseNextFullScreenMode (1);
+			VID_Menu_ChooseNextFullScreenMode(1);
 			break;
 		case VID_OPT_VSYNC:
-			Cbuf_AddText ("toggle vid_vsync\n");
+			Cbuf_AddText("toggle vid_vsync\n");
 			break;
 		case VID_OPT_ANTIALIASING_SAMPLES:
-			VID_Menu_ChooseNextAASamples (1);
+			VID_Menu_ChooseNextAASamples(1);
 			break;
 		case VID_OPT_ANTIALIASING_MODE:
-			VID_Menu_ChooseNextAAMode (1);
+			VID_Menu_ChooseNextAAMode(1);
 			break;
 		case VID_OPT_RENDER_SCALE:
-			VID_Menu_ChooseNextRenderScale (1);
+			VID_Menu_ChooseNextRenderScale(1);
 			break;
 		case VID_OPT_FILTER:
-			menu_settings.vid_filter = (menu_settings.vid_filter==0)?1:0;
+			menu_settings.vid_filter = (menu_settings.vid_filter == 0) ? 1 : 0;
 			break;
 		case VID_OPT_ANISOTROPY:
-			menu_settings.vid_anisotropic = (menu_settings.vid_anisotropic==0)?1:0;
+			menu_settings.vid_anisotropic = (menu_settings.vid_anisotropic == 0) ? 1 : 0;
 			break;
 		case VID_OPT_UNDERWATER:
-			VID_Menu_ChooseNextWaterWarp (1);
+			VID_Menu_ChooseNextWaterWarp(1);
 			break;
 		case VID_OPT_PARTICLES:
-			VID_Menu_ChooseNextParticles (1);
+			VID_Menu_ChooseNextParticles(1);
 			break;
 		case VID_OPT_TEST:
-			Cbuf_AddText ("vid_test\n");
+			Cbuf_AddText("vid_test\n");
 			break;
 		case VID_OPT_APPLY:
 			Cvar_SetValueQuick(&host_maxfps, menu_settings.host_maxfps);
@@ -3349,7 +3502,7 @@ static void VID_MenuKey (int key)
 			Cvar_SetValueQuick(&vid_filter, menu_settings.vid_filter);
 			Cvar_SetValueQuick(&vid_anisotropic, menu_settings.vid_anisotropic);
 			Cvar_SetValueQuick(&r_scale, menu_settings.r_scale);
-			Cbuf_AddText ("vid_restart\n");
+			Cbuf_AddText("vid_restart\n");
 			key_dest = key_game;
 			m_state = m_none;
 			IN_Activate();
@@ -3369,27 +3522,27 @@ static void VID_MenuKey (int key)
 VID_MenuDraw
 ================
 */
-static void VID_MenuDraw (void)
+static void VID_MenuDraw(void)
 {
 	int i, y;
-	qpic_t *p;
-	const char *title;
+	qpic_t* p;
+	const char* title;
 
 	y = 4;
 
 	// plaque
-	p = Draw_CachePic ("gfx/qplaque.lmp");
-	M_DrawTransPic (16, y, p);
+	p = Draw_CachePic("gfx/qplaque.lmp");
+	M_DrawTransPic(16, y, p);
 
 	//p = Draw_CachePic ("gfx/vidmodes.lmp");
-	p = Draw_CachePic ("gfx/p_option.lmp");
-	M_DrawPic ( (320-p->width)/2, y, p);
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, y, p);
 
 	y += 28;
 
 	// title
 	title = "Video Options";
-	M_PrintWhite ((320-8*strlen(title))/2, y, title);
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, y, title);
 
 	y += 16;
 
@@ -3399,71 +3552,71 @@ static void VID_MenuDraw (void)
 		switch (i)
 		{
 		case VID_OPT_MODE:
-			M_Print (16, y, "        Video mode");
-			M_Print (184, y, va("%ix%i", (int)vid_width.value, (int)vid_height.value));
+			M_Print(16, y, "        Video mode");
+			M_Print(184, y, va("%ix%i", (int)vid_width.value, (int)vid_height.value));
 			break;
 		case VID_OPT_BPP:
-			M_Print (16, y, "       Color depth");
-			M_Print (184, y, va("%i", (int)vid_bpp.value));
+			M_Print(16, y, "       Color depth");
+			M_Print(184, y, va("%i", (int)vid_bpp.value));
 			break;
 		case VID_OPT_REFRESHRATE:
-			M_Print (16, y, "      Refresh rate");
-			M_Print (184, y, va("%i", (int)vid_refreshrate.value));
+			M_Print(16, y, "      Refresh rate");
+			M_Print(184, y, va("%i", (int)vid_refreshrate.value));
 			break;
 		case VID_OPT_FULLSCREEN:
-			M_Print (16, y, "        Fullscreen");
-			M_Print (184, y, ((int)vid_fullscreen.value == 0) ? "off" : (((int)vid_fullscreen.value == 1)  ? "on" : "exclusive"));
+			M_Print(16, y, "        Fullscreen");
+			M_Print(184, y, ((int)vid_fullscreen.value == 0) ? "off" : (((int)vid_fullscreen.value == 1) ? "on" : "exclusive"));
 			break;
 		case VID_OPT_VSYNC:
-			M_Print (16, y, "     Vertical sync");
-			M_DrawCheckbox (184, y, (int)vid_vsync.value);
+			M_Print(16, y, "     Vertical sync");
+			M_DrawCheckbox(184, y, (int)vid_vsync.value);
 			break;
 		case VID_OPT_MAX_FPS:
-			M_Print (16, y, "           Max FPS");
+			M_Print(16, y, "           Max FPS");
 			if (menu_settings.host_maxfps <= 0)
-				M_Print (184, y, "no limit");
+				M_Print(184, y, "no limit");
 			else
-				M_Print (184, y, va("%d", menu_settings.host_maxfps));
+				M_Print(184, y, va("%d", menu_settings.host_maxfps));
 			break;
 		case VID_OPT_ANTIALIASING_SAMPLES:
-			M_Print (16, y, "      Antialiasing");
-			M_Print (184, y, ((int)vid_fsaa.value >= 2) ? va("%ix", CLAMP(2, (int)vid_fsaa.value, 16)) : "off");
+			M_Print(16, y, "      Antialiasing");
+			M_Print(184, y, ((int)vid_fsaa.value >= 2) ? va("%ix", CLAMP(2, (int)vid_fsaa.value, 16)) : "off");
 			break;
 		case VID_OPT_ANTIALIASING_MODE:
-			M_Print (16, y, "           AA Mode");
-			M_Print (184, y, ((int)vid_fsaamode.value == 0) ? "Multisample" : "Supersample");
+			M_Print(16, y, "           AA Mode");
+			M_Print(184, y, ((int)vid_fsaamode.value == 0) ? "Multisample" : "Supersample");
 			break;
 		case VID_OPT_RENDER_SCALE:
-			M_Print (16, y, "      Render Scale");
-			M_Print (184, y, (menu_settings.r_scale >= 2) ? va("1/%i", menu_settings.r_scale) : "off");
+			M_Print(16, y, "      Render Scale");
+			M_Print(184, y, (menu_settings.r_scale >= 2) ? va("1/%i", menu_settings.r_scale) : "off");
 			break;
 		case VID_OPT_FILTER:
-			M_Print (16, y, "          Textures");
-			M_Print (184, y, (menu_settings.vid_filter == 0) ? "smooth" : "classic");
+			M_Print(16, y, "          Textures");
+			M_Print(184, y, (menu_settings.vid_filter == 0) ? "smooth" : "classic");
 			break;
 		case VID_OPT_ANISOTROPY:
-			M_Print (16, y, "       Anisotropic");
-			M_Print (184, y, (menu_settings.vid_anisotropic == 0) ? "off" : va("on (%gx)", vulkan_globals.device_properties.limits.maxSamplerAnisotropy));
+			M_Print(16, y, "       Anisotropic");
+			M_Print(184, y, (menu_settings.vid_anisotropic == 0) ? "off" : va("on (%gx)", vulkan_globals.device_properties.limits.maxSamplerAnisotropy));
 			break;
 		case VID_OPT_UNDERWATER:
-			M_Print (16, y, "     Underwater FX");
-			M_Print (184, y, (menu_settings.r_waterwarp == 0) ? "off" : ((menu_settings.r_waterwarp == 1)  ? "Classic" : "glQuake"));
+			M_Print(16, y, "     Underwater FX");
+			M_Print(184, y, (menu_settings.r_waterwarp == 0) ? "off" : ((menu_settings.r_waterwarp == 1) ? "Classic" : "glQuake"));
 			break;
 		case VID_OPT_PARTICLES:
-			M_Print (16, y, "         Particles");
-			M_Print (184, y, (menu_settings.r_particles == 0) ? "off" : ((menu_settings.r_particles == 2)  ? "Classic" : "glQuake"));
+			M_Print(16, y, "         Particles");
+			M_Print(184, y, (menu_settings.r_particles == 0) ? "off" : ((menu_settings.r_particles == 2) ? "Classic" : "glQuake"));
 			break;
 		case VID_OPT_TEST:
 			y += 8; //separate the test and apply items
-			M_Print (16, y, "      Test changes");
+			M_Print(16, y, "      Test changes");
 			break;
 		case VID_OPT_APPLY:
-			M_Print (16, y, "     Apply changes");
+			M_Print(16, y, "     Apply changes");
 			break;
 		}
 
 		if (video_options_cursor == i)
-			M_DrawCharacter (168, y, 12+((int)(realtime*4)&1));
+			M_DrawCharacter(168, y, 12 + ((int)(realtime * 4) & 1));
 
 		y += 8;
 	}
@@ -3474,7 +3627,7 @@ static void VID_MenuDraw (void)
 VID_Menu_f
 ================
 */
-static void VID_Menu_f (void)
+static void VID_Menu_f(void)
 {
 	IN_Deactivate(modestate == MS_WINDOWED);
 	key_dest = key_menu;
@@ -3482,11 +3635,11 @@ static void VID_Menu_f (void)
 	m_entersound = true;
 
 	//set all the cvars to match the current mode when entering the menu
-	VID_SyncCvars ();
+	VID_SyncCvars();
 
 	//set up bpp and rate lists based on current cvars
-	VID_Menu_RebuildBppList ();
-	VID_Menu_RebuildRateList ();
+	VID_Menu_RebuildBppList();
+	VID_Menu_RebuildRateList();
 }
 
 /*
@@ -3497,11 +3650,11 @@ SCREEN SHOTS
 ==============================================================================
 */
 
-static void SCR_ScreenShot_Usage (void)
+static void SCR_ScreenShot_Usage(void)
 {
-	Con_Printf ("usage: screenshot <format> <quality>\n");
-	Con_Printf ("   format must be \"png\" or \"tga\" or \"jpg\"\n");
-	Con_Printf ("   quality must be 1-100\n");
+	Con_Printf("usage: screenshot <format> <quality>\n");
+	Con_Printf("   format must be \"png\" or \"tga\" or \"jpg\"\n");
+	Con_Printf("   quality must be 1-100\n");
 	return;
 }
 
@@ -3510,7 +3663,7 @@ static void SCR_ScreenShot_Usage (void)
 SCR_ScreenShot_f -- johnfitz -- rewritten to use Image_WriteTGA
 ==================
 */
-void SCR_ScreenShot_f (void)
+void SCR_ScreenShot_f(void)
 {
 	VkBuffer buffer;
 	VkResult err;
@@ -3523,30 +3676,30 @@ void SCR_ScreenShot_f (void)
 	qboolean bgra = (vulkan_globals.swap_chain_format == VK_FORMAT_B8G8R8A8_UNORM)
 		|| (vulkan_globals.swap_chain_format == VK_FORMAT_B8G8R8A8_SRGB);
 
-	Q_strncpy (ext, "png", sizeof(ext));
+	Q_strncpy(ext, "png", sizeof(ext));
 
-	if (Cmd_Argc () >= 2)
+	if (Cmd_Argc() >= 2)
 	{
-		const char	*requested_ext = Cmd_Argv (1);
+		const char* requested_ext = Cmd_Argv(1);
 
-		if (!q_strcasecmp ("png", requested_ext)
-		    || !q_strcasecmp ("tga", requested_ext)
-		    || !q_strcasecmp ("jpg", requested_ext))
-			Q_strncpy (ext, requested_ext, sizeof(ext));
+		if (!q_strcasecmp("png", requested_ext)
+			|| !q_strcasecmp("tga", requested_ext)
+			|| !q_strcasecmp("jpg", requested_ext))
+			Q_strncpy(ext, requested_ext, sizeof(ext));
 		else
 		{
-			SCR_ScreenShot_Usage ();
+			SCR_ScreenShot_Usage();
 			return;
 		}
 	}
 
-// read quality as the 3rd param (only used for JPG)
+	// read quality as the 3rd param (only used for JPG)
 	quality = 90;
-	if (Cmd_Argc () >= 3)
-		quality = Q_atoi (Cmd_Argv(2));
+	if (Cmd_Argc() >= 3)
+		quality = Q_atoi(Cmd_Argv(2));
 	if (quality < 1 || quality > 100)
 	{
-		SCR_ScreenShot_Usage ();
+		SCR_ScreenShot_Usage();
 		return;
 	}
 
@@ -3555,25 +3708,25 @@ void SCR_ScreenShot_f (void)
 		&& (vulkan_globals.swap_chain_format != VK_FORMAT_R8G8B8A8_UNORM)
 		&& (vulkan_globals.swap_chain_format != VK_FORMAT_R8G8B8A8_SRGB))
 	{
-		Con_Printf ("SCR_ScreenShot_f: Unsupported surface format\n");
+		Con_Printf("SCR_ScreenShot_f: Unsupported surface format\n");
 		return;
 	}
 
-// find a file name to save it to
-	for (i=0; i<10000; i++)
+	// find a file name to save it to
+	for (i = 0; i < 10000; i++)
 	{
-		q_snprintf (imagename, sizeof(imagename), "vkquake%04i.%s", i, ext);	// "fitz%04i.tga"
-		q_snprintf (checkname, sizeof(checkname), "%s/%s", com_gamedir, imagename);
+		q_snprintf(imagename, sizeof(imagename), "vkquake%04i.%s", i, ext);	// "fitz%04i.tga"
+		q_snprintf(checkname, sizeof(checkname), "%s/%s", com_gamedir, imagename);
 		if (Sys_FileTime(checkname) == -1)
 			break;	// file doesn't exist
 	}
 	if (i == 10000)
 	{
-		Con_Printf ("SCR_ScreenShot_f: Couldn't find an unused filename\n");
+		Con_Printf("SCR_ScreenShot_f: Couldn't find an unused filename\n");
 		return;
 	}
 
-// get data
+	// get data
 	VkBufferCreateInfo buffer_create_info;
 	memset(&buffer_create_info, 0, sizeof(buffer_create_info));
 	buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -3672,34 +3825,34 @@ void SCR_ScreenShot_f (void)
 	if (err != VK_SUCCESS)
 		Sys_Error("vkDeviceWaitIdle failed");
 
-	void * buffer_ptr;
+	void* buffer_ptr;
 	vkMapMemory(vulkan_globals.device, memory, 0, glwidth * glheight * 4, 0, &buffer_ptr);
 
 	if (bgra)
 	{
-		byte * data = (byte*)buffer_ptr;
+		byte* data = (byte*)buffer_ptr;
 		const int size = glwidth * glheight * 4;
 		for (i = 0; i < size; i += 4)
 		{
 			const byte temp = data[i];
-			data[i] = data[i+2];
-			data[i+2] = temp;
+			data[i] = data[i + 2];
+			data[i + 2] = temp;
 		}
 	}
 
-	if (!q_strncasecmp (ext, "png", sizeof(ext)))
-		ok = Image_WritePNG (imagename, buffer_ptr, glwidth, glheight, 32, true);
-	else if (!q_strncasecmp (ext, "tga", sizeof(ext)))
-		ok = Image_WriteTGA (imagename, buffer_ptr, glwidth, glheight, 32, true);
-	else if (!q_strncasecmp (ext, "jpg", sizeof(ext)))
-		ok = Image_WriteJPG (imagename, buffer_ptr, glwidth, glheight, 32, quality, true);
+	if (!q_strncasecmp(ext, "png", sizeof(ext)))
+		ok = Image_WritePNG(imagename, buffer_ptr, glwidth, glheight, 32, true);
+	else if (!q_strncasecmp(ext, "tga", sizeof(ext)))
+		ok = Image_WriteTGA(imagename, buffer_ptr, glwidth, glheight, 32, true);
+	else if (!q_strncasecmp(ext, "jpg", sizeof(ext)))
+		ok = Image_WriteJPG(imagename, buffer_ptr, glwidth, glheight, 32, quality, true);
 	else
 		ok = false;
 
 	if (ok)
-		Con_Printf ("Wrote %s\n", imagename);
+		Con_Printf("Wrote %s\n", imagename);
 	else
-		Con_Printf ("SCR_ScreenShot_f: Couldn't create %s\n", imagename);
+		Con_Printf("SCR_ScreenShot_f: Couldn't create %s\n", imagename);
 
 	vkUnmapMemory(vulkan_globals.device, memory);
 	vkFreeMemory(vulkan_globals.device, memory, NULL);
@@ -3707,7 +3860,7 @@ void SCR_ScreenShot_f (void)
 	vkFreeCommandBuffers(vulkan_globals.device, transient_command_pool, 1, &command_buffer);
 }
 
-void VID_FocusGained (void)
+void VID_FocusGained(void)
 {
 	has_focus = true;
 	if (vulkan_globals.want_full_screen_exclusive)
@@ -3716,7 +3869,7 @@ void VID_FocusGained (void)
 	}
 }
 
-void VID_FocusLost (void)
+void VID_FocusLost(void)
 {
 	has_focus = false;
 	if (vulkan_globals.want_full_screen_exclusive)
