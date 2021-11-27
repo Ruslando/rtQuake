@@ -123,7 +123,7 @@ static VkCommandBuffer				command_buffers[NUM_COMMAND_BUFFERS];
 static VkFence						command_buffer_fences[NUM_COMMAND_BUFFERS];
 static qboolean						command_buffer_submitted[NUM_COMMAND_BUFFERS];
 static VkFramebuffer				main_framebuffers[NUM_COLOR_BUFFERS];
-static VkFramebuffer				raytrace_framebuffer[NUM_COLOR_BUFFERS];
+static VkFramebuffer				raytrace_framebuffer;
 static VkSemaphore					image_aquired_semaphores[NUM_COMMAND_BUFFERS];
 static VkSemaphore					draw_complete_semaphores[NUM_COMMAND_BUFFERS];
 static VkFramebuffer				ui_framebuffers[MAX_SWAP_CHAIN_IMAGES];
@@ -1286,6 +1286,39 @@ static void GL_CreateRenderPasses()
 
 	GL_SetObjectName((uint64_t)vulkan_globals.main_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "main");
 
+	// Ray tracing render pass
+	memset(&attachment_descriptions, 0, sizeof(attachment_descriptions));
+
+	attachment_descriptions[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	attachment_descriptions[0].samples = VK_SAMPLE_COUNT_1_BIT;
+	attachment_descriptions[0].format = vulkan_globals.color_format;
+	attachment_descriptions[0].loadOp = resolve ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachment_descriptions[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+	memset(&scene_color_attachment_reference, 0, sizeof(VkAttachmentReference));
+	scene_color_attachment_reference.attachment = 0;
+	scene_color_attachment_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	memset(&subpass_descriptions, 0, sizeof(subpass_descriptions));
+	subpass_descriptions[0].colorAttachmentCount = 1;
+	subpass_descriptions[0].pColorAttachments = &scene_color_attachment_reference;
+	subpass_descriptions[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+
+	memset(&render_pass_create_info, 0, sizeof(render_pass_create_info));
+	render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	render_pass_create_info.attachmentCount = 1;
+	render_pass_create_info.pAttachments = attachment_descriptions;
+	render_pass_create_info.subpassCount = 1;
+	render_pass_create_info.pSubpasses = subpass_descriptions;
+
+	assert(vulkan_globals.raygen_render_pass == VK_NULL_HANDLE);
+	err = vkCreateRenderPass(vulkan_globals.device, &render_pass_create_info, NULL, &vulkan_globals.raygen_render_pass);
+	if (err != VK_SUCCESS)
+		Sys_Error("Couldn't create Vulkan render pass");
+
+	GL_SetObjectName((uint64_t)vulkan_globals.raygen_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "raygen render pass");
+
 	// UI Render Pass
 	attachment_descriptions[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1347,7 +1380,7 @@ static void GL_CreateRenderPasses()
 	if (err != VK_SUCCESS)
 		Sys_Error("Couldn't create Vulkan render pass");
 
-	GL_SetObjectName((uint64_t)vulkan_globals.main_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "ui");
+	GL_SetObjectName((uint64_t)vulkan_globals.ui_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "ui");
 
 	if (vulkan_globals.warp_render_pass == VK_NULL_HANDLE)
 	{
@@ -1379,6 +1412,8 @@ static void GL_CreateRenderPasses()
 
 		GL_SetObjectName((uint64_t)vulkan_globals.warp_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "warp");
 	}
+
+
 }
 
 /*
@@ -1465,6 +1500,88 @@ static void GL_CreateDepthBuffer(void)
 		Sys_Error("vkCreateImageView failed");
 
 	GL_SetObjectName((uint64_t)depth_buffer_view, VK_OBJECT_TYPE_IMAGE_VIEW, "Depth Buffer View");
+}
+
+
+static void GL_CreateRayImageBuffer(void)
+{
+	VkResult err;
+
+	Sys_Printf("Creating ray image buffer\n");
+
+	VkImageCreateInfo image_create_info;
+	memset(&image_create_info, 0, sizeof(image_create_info));
+	image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	image_create_info.pNext = NULL;
+	image_create_info.imageType = VK_IMAGE_TYPE_2D;
+	image_create_info.format = vulkan_globals.color_format;
+	image_create_info.extent.width = vid.width;
+	image_create_info.extent.height = vid.height;
+	image_create_info.extent.depth = 1;
+	image_create_info.mipLevels = 1;
+	image_create_info.arrayLayers = 1;
+	image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+	image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+	image_create_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+
+	assert(vulkan_globals.ray_image_buffers == VK_NULL_HANDLE);
+	err = vkCreateImage(vulkan_globals.device, &image_create_info, NULL, &vulkan_globals.ray_image_buffers);
+	if (err != VK_SUCCESS)
+		Sys_Error("vkCreateImage failed");
+
+	GL_SetObjectName((uint64_t)vulkan_globals.ray_image_buffers, VK_OBJECT_TYPE_IMAGE, va("Ray Image Buffer"));
+
+	VkMemoryRequirements memory_requirements;
+	vkGetImageMemoryRequirements(vulkan_globals.device, vulkan_globals.ray_image_buffers, &memory_requirements);
+
+	VkMemoryDedicatedAllocateInfoKHR dedicated_allocation_info;
+	memset(&dedicated_allocation_info, 0, sizeof(dedicated_allocation_info));
+	dedicated_allocation_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR;
+	dedicated_allocation_info.image = vulkan_globals.ray_image_buffers;
+
+	VkMemoryAllocateInfo memory_allocate_info;
+	memset(&memory_allocate_info, 0, sizeof(memory_allocate_info));
+	memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	memory_allocate_info.allocationSize = memory_requirements.size;
+	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+
+	if (vulkan_globals.dedicated_allocation)
+		memory_allocate_info.pNext = &dedicated_allocation_info;
+
+	assert(raytrace_buffer_memory == VK_NULL_HANDLE);
+	num_vulkan_misc_allocations += 1;
+	err = vkAllocateMemory(vulkan_globals.device, &memory_allocate_info, NULL, &raytrace_buffer_memory);
+	if (err != VK_SUCCESS)
+		Sys_Error("vkAllocateMemory failed");
+
+	GL_SetObjectName((uint64_t)raytrace_buffer_memory, VK_OBJECT_TYPE_DEVICE_MEMORY, va("Ray Image Buffer Memory "));
+
+	err = vkBindImageMemory(vulkan_globals.device, vulkan_globals.ray_image_buffers, raytrace_buffer_memory, 0);
+	if (err != VK_SUCCESS)
+		Sys_Error("vkBindImageMemory failed");
+
+	VkImageViewCreateInfo image_view_create_info;
+	memset(&image_view_create_info, 0, sizeof(image_view_create_info));
+	image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	image_view_create_info.format = vulkan_globals.color_format;
+	image_view_create_info.image = vulkan_globals.ray_image_buffers;
+	image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	image_view_create_info.subresourceRange.baseMipLevel = 0;
+	image_view_create_info.subresourceRange.levelCount = 1;
+	image_view_create_info.subresourceRange.baseArrayLayer = 0;
+	image_view_create_info.subresourceRange.layerCount = 1;
+	image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	image_view_create_info.flags = 0;
+
+	assert(raytrace_buffer_view == VK_NULL_HANDLE);
+	err = vkCreateImageView(vulkan_globals.device, &image_view_create_info, NULL, &raytrace_buffer_view);
+	if (err != VK_SUCCESS)
+		Sys_Error("vkCreateImageView failed");
+
+	GL_SetObjectName((uint64_t)raytrace_buffer_view, VK_OBJECT_TYPE_IMAGE_VIEW, va("Ray Image Buffer View "));
+
+	vulkan_globals.sample_count = VK_SAMPLE_COUNT_1_BIT;
+	vulkan_globals.supersampling = false;
 }
 
 /*
@@ -2059,6 +2176,7 @@ static void GL_CreateFrameBuffers(void)
 		framebuffer_create_info.height = vid.height;
 		framebuffer_create_info.layers = 1;
 
+		// TODO: Change first attachment to color_buffers_view or raytrace_buffer_view depending on which render pipeline is currently on
 		VkImageView attachments[2] = { color_buffers_view[0], swapchain_images_views[i] };
 		framebuffer_create_info.pAttachments = attachments;
 
@@ -2069,6 +2187,25 @@ static void GL_CreateFrameBuffers(void)
 
 		GL_SetObjectName((uint64_t)ui_framebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, "ui");
 	}
+
+	VkFramebufferCreateInfo framebuffer_create_info;
+	memset(&framebuffer_create_info, 0, sizeof(framebuffer_create_info));
+	framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	framebuffer_create_info.renderPass = vulkan_globals.raygen_render_pass;
+	framebuffer_create_info.attachmentCount = 1;
+	framebuffer_create_info.width = vid.width;
+	framebuffer_create_info.height = vid.height;
+	framebuffer_create_info.layers = 1;
+
+	VkImageView attachments[1] = { raytrace_buffer_view };
+	framebuffer_create_info.pAttachments = attachments;
+
+	assert(raytrace_framebuffer == VK_NULL_HANDLE);
+	err = vkCreateFramebuffer(vulkan_globals.device, &framebuffer_create_info, NULL, &raytrace_framebuffer);
+	if (err != VK_SUCCESS)
+		Sys_Error("vkCreateFramebuffer failed");
+
+	GL_SetObjectName((uint64_t)raytrace_framebuffer, VK_OBJECT_TYPE_FRAMEBUFFER, "raytrace framebuffer");
 }
 
 /*
@@ -2083,6 +2220,7 @@ static void GL_CreateRenderResources(void)
 		return;
 	}
 
+	GL_CreateRayImageBuffer();
 	GL_CreateColorBuffer();
 	GL_CreateDepthBuffer();
 	GL_CreateRenderPasses();

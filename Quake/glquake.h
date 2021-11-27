@@ -205,6 +205,7 @@ typedef struct
 
 	// Buffers
 	VkImage								color_buffers[NUM_COLOR_BUFFERS];
+	VkImage								ray_image_buffers;
 
 	// Index buffers
 	VkBuffer							fan_index_buffer;
@@ -220,6 +221,9 @@ typedef struct
 	VkRenderPass						main_render_pass;
 	VkClearValue						main_clear_values[4];
 	VkRenderPassBeginInfo				main_render_pass_begin_infos[2];
+	VkRenderPass						raygen_render_pass;
+	VkClearValue						raygen_clear_values;
+	VkRenderPassBeginInfo				raygen_render_pass_begin_info;
 	VkRenderPass						ui_render_pass;
 	VkRenderPassBeginInfo				ui_render_pass_begin_info;
 	VkRenderPass						warp_render_pass;
