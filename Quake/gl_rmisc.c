@@ -1249,7 +1249,7 @@ R_CreateDescriptorPool
 */
 void R_CreateDescriptorPool()
 {
-	VkDescriptorPoolSize pool_sizes[4];
+	VkDescriptorPoolSize pool_sizes[5];
 	pool_sizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	pool_sizes[0].descriptorCount = MAX_GLTEXTURES + 1;
 	pool_sizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
@@ -1258,12 +1258,14 @@ void R_CreateDescriptorPool()
 	pool_sizes[2].descriptorCount = 2;
 	pool_sizes[3].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 	pool_sizes[3].descriptorCount = MAX_GLTEXTURES;
+	pool_sizes[4].type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+	pool_sizes[4].descriptorCount = 1;
 
 	VkDescriptorPoolCreateInfo descriptor_pool_create_info;
 	memset(&descriptor_pool_create_info, 0, sizeof(descriptor_pool_create_info));
 	descriptor_pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	descriptor_pool_create_info.maxSets = MAX_GLTEXTURES + 32;
-	descriptor_pool_create_info.poolSizeCount = 4;
+	descriptor_pool_create_info.poolSizeCount = 5;
 	descriptor_pool_create_info.pPoolSizes = pool_sizes;
 	descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
@@ -1429,6 +1431,31 @@ void R_CreatePipelineLayouts()
 		Sys_Error("vkCreatePipelineLayout failed");
 	GL_SetObjectName((uint64_t)vulkan_globals.showtris_pipeline.layout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "showtris_pipeline_layout");
 	vulkan_globals.showtris_pipeline.layout.push_constant_range = push_constant_range;
+
+	// Ray generation
+
+	VkDescriptorSetLayout raygen_descriptor_set_layouts[1] = {
+		vulkan_globals.raygen_set_layout.handle, // output image and acceleration structure
+	};
+
+	// TODO: Currently not used in shader
+	// Used for camera
+	memset(&push_constant_range, 0, sizeof(push_constant_range));
+	push_constant_range.offset = 0;
+	push_constant_range.size = 16 * sizeof(float) * 2; // one matrix for view_inverse and one for proj_inverse
+	push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
+
+	//Ignore push constants for now
+	pipeline_layout_create_info.setLayoutCount = 1;
+	pipeline_layout_create_info.pSetLayouts = raygen_descriptor_set_layouts;
+	pipeline_layout_create_info.pushConstantRangeCount = 1;
+	pipeline_layout_create_info.pPushConstantRanges = &push_constant_range;
+
+	err = vkCreatePipelineLayout(vulkan_globals.device, &pipeline_layout_create_info, NULL, &vulkan_globals.raygen_pipeline.layout.handle);
+	if (err != VK_SUCCESS)
+		Sys_Error("vkCreatePipelineLayout failed");
+	GL_SetObjectName((uint64_t)vulkan_globals.raygen_pipeline.layout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "raygen_pipeline_layout");
+	vulkan_globals.raygen_pipeline.layout.push_constant_range = push_constant_range;
 }
 
 /*

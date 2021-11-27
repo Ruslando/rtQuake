@@ -251,6 +251,7 @@ typedef struct
 	vulkan_pipeline_t					showbboxes_pipeline;
 	vulkan_pipeline_t					alias_showtris_pipeline;
 	vulkan_pipeline_t					alias_showtris_depth_test_pipeline;
+	vulkan_pipeline_t					raygen_pipeline;
 #ifdef PSET_SCRIPT
 	vulkan_pipeline_t					fte_particle_pipelines[FTE_PARTICLE_PIPELINE_COUNT];
 #endif
