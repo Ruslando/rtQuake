@@ -2649,8 +2649,8 @@ void COM_InitFilesystem (void) //johnfitz -- modified based on topaz's tutorial
 			COM_AddGameDirectory (p);
 	}
 
-	if (COM_CheckParm ("-validation"))
-		vulkan_globals.validation = true;
+	/*if (COM_CheckParm ("-validation"))*/
+	vulkan_globals.validation = true;
 
 	COM_CheckRegistered ();
 }
