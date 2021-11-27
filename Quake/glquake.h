@@ -157,6 +157,7 @@ typedef struct vulkan_desc_set_layout_s {
 	int							num_combined_image_samplers;
 	int							num_ubos_dynamic;
 	int							num_input_attachments;
+	int							num_tlas;
 	int							num_storage_images;
 } vulkan_desc_set_layout_t;
 

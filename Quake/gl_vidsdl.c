@@ -2098,6 +2098,9 @@ static void GL_DestroyRenderResources(void)
 
 	R_DestroyPipelines();
 
+	R_FreeDescriptorSet(vulkan_globals.raygen_desc_set, &vulkan_globals.raygen_set_layout);
+	vulkan_globals.raygen_desc_set = VK_NULL_HANDLE;
+
 	R_FreeDescriptorSet(postprocess_descriptor_set, &vulkan_globals.input_attachment_set_layout);
 	postprocess_descriptor_set = VK_NULL_HANDLE;
 
