@@ -1214,6 +1214,32 @@ void R_CreateDescriptorSetLayouts()
 	err = vkCreateDescriptorSetLayout(vulkan_globals.device, &descriptor_set_layout_create_info, NULL, &vulkan_globals.single_texture_cs_write_set_layout.handle);
 	if (err != VK_SUCCESS)
 		Sys_Error("vkCreateDescriptorSetLayout failed");
+
+	VkDescriptorSetLayoutBinding raygen_layout_bindings[2];
+	memset(&raygen_layout_bindings, 0, sizeof(raygen_layout_bindings));
+
+	//layout binding acceleration structure
+	raygen_layout_bindings[0].binding = 0;
+	raygen_layout_bindings[0].descriptorCount = 1;
+	raygen_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+	raygen_layout_bindings[0].stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+	//layout binding output image
+	raygen_layout_bindings[1].binding = 1;
+	raygen_layout_bindings[1].descriptorCount = 1;
+	raygen_layout_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	raygen_layout_bindings[1].stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;;
+
+	descriptor_set_layout_create_info.bindingCount = 2;
+	descriptor_set_layout_create_info.pBindings = raygen_layout_bindings;
+
+	memset(&vulkan_globals.raygen_set_layout, 0, sizeof(vulkan_globals.raygen_set_layout));
+	vulkan_globals.raygen_set_layout.num_tlas = 1;
+	vulkan_globals.raygen_set_layout.num_storage_images = 1;
+
+	err = vkCreateDescriptorSetLayout(vulkan_globals.device, &descriptor_set_layout_create_info, NULL, &vulkan_globals.raygen_set_layout.handle);
+	if (err != VK_SUCCESS)
+		Sys_Error("vkCreateDescriptorSetLayout failed");
 }
 
 /*
