@@ -283,6 +283,41 @@ static void GL_FrustumMatrix(float matrix[16], float fovx, float fovy)
 
 /*
 =============
+R_SetupMatrix_RTX
+=============
+*/
+void R_SetupMatrix_RTX()
+{
+	// Projection matrix
+	GL_FrustumMatrix(vulkan_globals.projection_matrix, DEG2RAD(r_fovx), DEG2RAD(r_fovy));
+
+	// View matrix
+	float rotation_matrix[16];
+	RotationMatrix(vulkan_globals.view_matrix, -M_PI / 2.0f, 1.0f, 0.0f, 0.0f);
+	RotationMatrix(rotation_matrix, M_PI / 2.0f, 0.0f, 0.0f, 1.0f);
+	MatrixMultiply(vulkan_globals.view_matrix, rotation_matrix);
+	RotationMatrix(rotation_matrix, DEG2RAD(-r_refdef.viewangles[2]), 1.0f, 0.0f, 0.0f);
+	MatrixMultiply(vulkan_globals.view_matrix, rotation_matrix);
+	RotationMatrix(rotation_matrix, DEG2RAD(-r_refdef.viewangles[0]), 0.0f, 1.0f, 0.0f);
+	MatrixMultiply(vulkan_globals.view_matrix, rotation_matrix);
+	RotationMatrix(rotation_matrix, DEG2RAD(-r_refdef.viewangles[1]), 0.0f, 0.0f, 1.0f);
+	MatrixMultiply(vulkan_globals.view_matrix, rotation_matrix);
+
+	float translation_matrix[16];
+	TranslationMatrix(translation_matrix, -r_refdef.vieworg[0], -r_refdef.vieworg[1], -r_refdef.vieworg[2]);
+	MatrixMultiply(vulkan_globals.view_matrix, translation_matrix);
+
+	static camera_pushconstants_t inverse_matrices;
+
+	InverseMatrix(vulkan_globals.view_matrix, inverse_matrices.view_inverse);
+	InverseMatrix(vulkan_globals.projection_matrix, inverse_matrices.proj_inverse);
+
+	/*R_BindPipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline);
+	R_PushConstants(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, 0, sizeof(inverse_matrices), &inverse_matrices);*/
+}
+
+/*
+=============
 R_SetupMatrix
 =============
 */
@@ -683,6 +718,32 @@ void R_ShowTris(void)
 	R_EndDebugUtilsLabel ();
 }
 
+void R_SetupRaytracing(void)
+{
+	R_BindPipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline);
+	// Probably have to include other descriptor sets too
+	vulkan_globals.vk_cmd_bind_descriptor_sets(vulkan_globals.command_buffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline.layout.handle, 0, 1, &vulkan_globals.raygen_desc_set, 0, VK_NULL_HANDLE);
+
+	vulkan_globals.fpCmdTraceRaysKHR(vulkan_globals.command_buffer, &vulkan_globals.rt_gen_region, &vulkan_globals.rt_miss_region, &vulkan_globals.rt_hit_region, &vulkan_globals.rt_call_region,
+		1280, 720, 1);
+
+}
+
+/*
+================
+R_RenderScene_RTX
+================
+*/
+void R_RenderScene_RTX(void)
+{
+	static entity_t r_worldentity;	//so we can make sure currententity is valid
+	currententity = &r_worldentity;
+
+	R_SetupMatrix_RTX();
+
+	R_SetupRaytracing();
+}
+
 /*
 ================
 R_RenderScene
@@ -730,7 +791,7 @@ R_RenderView_RTX
 */
 void R_RenderView_RTX (void)
 {
-	
+	R_RenderScene_RTX();
 }
 
 

@@ -923,11 +923,13 @@ void V_RenderView (void)
 
 	//Ray tracing render pass
 	{
+		render_warp = false;
+		render_pass_index = 0;	// Altought the render pass is 1 with ray tracing, there can only be one "main" render pass, so its index stays zero
+		render_scale = 1;
+
+		
 		if (con_forcedup)
 		{
-			render_warp = false;
-			render_pass_index = 0;	// Altought the render pass is 1 with ray tracing, there can only be one "main" render pass, so its index stays zero
-			render_scale = 1;
 			vkCmdBeginRenderPass(vulkan_globals.command_buffer, &vulkan_globals.raygen_render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 			return;
 		}
@@ -935,6 +937,9 @@ void V_RenderView (void)
 		R_RenderView_RTX();
 
 		vkCmdBeginRenderPass(vulkan_globals.command_buffer, &vulkan_globals.raygen_render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
+		R_BindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.basic_blend_pipeline[render_pass_index]);
+
+		
 	}
 	
 }

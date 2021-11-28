@@ -155,6 +155,7 @@ static PFN_vkEnumerateInstanceVersion fpEnumerateInstanceVersion;
 
 static PFN_vkCreateRayTracingPipelinesKHR fpCreateRayTracingPipelinesKHR;
 static PFN_vkGetRayTracingShaderGroupHandlesKHR fpGetRayTracingShaderGroupHandlesKHR;
+static PFN_vkCmdTraceRaysKHR fpCmdTraceRaysKHR;
 
 #if defined(VK_EXT_full_screen_exclusive)
 static PFN_vkAcquireFullScreenExclusiveModeEXT fpAcquireFullScreenExclusiveModeEXT;
@@ -1075,9 +1076,11 @@ static void GL_InitDevice(void)
 
 	GET_DEVICE_PROC_ADDR(CreateRayTracingPipelinesKHR);
 	GET_DEVICE_PROC_ADDR(GetRayTracingShaderGroupHandlesKHR);
+	GET_DEVICE_PROC_ADDR(CmdTraceRaysKHR);
 
 	vulkan_globals.fpCreateRayTracingPipelinesKHR = fpCreateRayTracingPipelinesKHR;
 	vulkan_globals.fpGetRayTracingShaderGroupHandlesKHR = fpGetRayTracingShaderGroupHandlesKHR;
+	vulkan_globals.fpCmdTraceRaysKHR = fpCmdTraceRaysKHR;
 
 	for (i = 0; i < numEnabledExtensions; ++i)
 		Con_Printf("Using %s\n", device_create_info.ppEnabledExtensionNames[i]);
@@ -1282,16 +1285,15 @@ static void GL_CreateRenderPasses()
 	if (err != VK_SUCCESS)
 		Sys_Error("Couldn't create Vulkan render pass");
 
-	GL_SetObjectName((uint64_t)vulkan_globals.main_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "main");
+	GL_SetObjectName((uint64_t)vulkan_globals.main_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "main render pass");
 
 	// Ray tracing render pass
 	memset(&attachment_descriptions, 0, sizeof(attachment_descriptions));
-
-	attachment_descriptions[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachment_descriptions[0].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
 	attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	attachment_descriptions[0].samples = VK_SAMPLE_COUNT_1_BIT;
 	attachment_descriptions[0].format = vulkan_globals.color_format;
-	attachment_descriptions[0].loadOp = resolve ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachment_descriptions[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 	attachment_descriptions[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
 	memset(&scene_color_attachment_reference, 0, sizeof(VkAttachmentReference));
@@ -1319,7 +1321,9 @@ static void GL_CreateRenderPasses()
 
 	// UI Render Pass
 	attachment_descriptions[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	//attachment_descriptions[0].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+	//attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_GENERAL;
 	attachment_descriptions[0].samples = VK_SAMPLE_COUNT_1_BIT;
 	attachment_descriptions[0].format = vulkan_globals.color_format;
 	attachment_descriptions[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -1378,7 +1382,7 @@ static void GL_CreateRenderPasses()
 	if (err != VK_SUCCESS)
 		Sys_Error("Couldn't create Vulkan render pass");
 
-	GL_SetObjectName((uint64_t)vulkan_globals.ui_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "ui");
+	GL_SetObjectName((uint64_t)vulkan_globals.ui_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "ui render pass");
 
 	if (vulkan_globals.warp_render_pass == VK_NULL_HANDLE)
 	{
@@ -1757,7 +1761,7 @@ static void GL_CreateDescriptorSets(void)
 	VkDescriptorImageInfo pt_output_image_info;
 	memset(&pt_output_image_info, 0, sizeof(pt_output_image_info));
 	pt_output_image_info.imageView = color_buffers_view[0];
-	//pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	//pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	//pt_output_image_info.sampler = VK_DESCRIPTOR_TYPE_SAMPLER;
 

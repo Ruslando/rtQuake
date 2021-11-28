@@ -141,6 +141,10 @@ extern int r_trace_line_cache_counter;
 #define InvalidateTraceLineCache()
 #endif
 
+typedef struct camera_pushconstants_s {
+	float view_inverse[16];
+	float proj_inverse[16];
+} camera_pushconstants_t;
 
 typedef struct vulkan_pipeline_layout_s {
 	VkPipelineLayout		handle;
@@ -214,8 +218,9 @@ typedef struct
 	int									staging_buffer_size;
 
 	// Device procedures
-	PFN_vkCreateRayTracingPipelinesKHR			fpCreateRayTracingPipelinesKHR;
+	PFN_vkCreateRayTracingPipelinesKHR	fpCreateRayTracingPipelinesKHR;
 	PFN_vkGetRayTracingShaderGroupHandlesKHR	fpGetRayTracingShaderGroupHandlesKHR;
+	PFN_vkCmdTraceRaysKHR				fpCmdTraceRaysKHR;
 
 	// Render passes
 	VkRenderPass						main_render_pass;
