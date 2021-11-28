@@ -724,3 +724,57 @@ void IdentityMatrix(float matrix[16])
 	// Fourth column
 	matrix[3*4 + 3] = 1.0f;
 }
+
+// Finessed from rodolphe-vaillant.fr for 4x4 matrix inversion
+/*
+=============
+MinorMatrix
+=============
+*/
+float MinorMatrix(float m[16], int r0, int r1, int r2, int c0, int c1, int c2)
+{
+	return m[4 * r0 + c0] * (m[4 * r1 + c1] * m[4 * r2 + c2] - m[4 * r2 + c1] * m[4 * r1 + c2]) -
+		m[4 * r0 + c1] * (m[4 * r1 + c0] * m[4 * r2 + c2] - m[4 * r2 + c0] * m[4 * r1 + c2]) +
+		m[4 * r0 + c2] * (m[4 * r1 + c0] * m[4 * r2 + c1] - m[4 * r2 + c0] * m[4 * r1 + c1]);
+}
+
+/*
+=============
+AdjointMatrix
+=============
+*/
+void AdjointMatrix(float m[16], float adjOut[16])
+{
+	adjOut[0] = MinorMatrix(m, 1, 2, 3, 1, 2, 3); adjOut[1] = -MinorMatrix(m, 0, 2, 3, 1, 2, 3); adjOut[2] = MinorMatrix(m, 0, 1, 3, 1, 2, 3); adjOut[3] = -MinorMatrix(m, 0, 1, 2, 1, 2, 3);
+	adjOut[4] = -MinorMatrix(m, 1, 2, 3, 0, 2, 3); adjOut[5] = MinorMatrix(m, 0, 2, 3, 0, 2, 3); adjOut[6] = -MinorMatrix(m, 0, 1, 3, 0, 2, 3); adjOut[7] = MinorMatrix(m, 0, 1, 2, 0, 2, 3);
+	adjOut[8] = MinorMatrix(m, 1, 2, 3, 0, 1, 3); adjOut[9] = -MinorMatrix(m, 0, 2, 3, 0, 1, 3); adjOut[10] = MinorMatrix(m, 0, 1, 3, 0, 1, 3); adjOut[11] = -MinorMatrix(m, 0, 1, 2, 0, 1, 3);
+	adjOut[12] = -MinorMatrix(m, 1, 2, 3, 0, 1, 2); adjOut[13] = MinorMatrix(m, 0, 2, 3, 0, 1, 2); adjOut[14] = -MinorMatrix(m, 0, 1, 3, 0, 1, 2); adjOut[15] = MinorMatrix(m, 0, 1, 2, 0, 1, 2);
+}
+
+/*
+=============
+DetMatrix
+=============
+*/
+float DetMatrix(float m[16])
+{
+	return m[0] * MinorMatrix(m, 1, 2, 3, 1, 2, 3) -
+		m[1] * MinorMatrix(m, 1, 2, 3, 0, 2, 3) +
+		m[2] * MinorMatrix(m, 1, 2, 3, 0, 1, 3) -
+		m[3] * MinorMatrix(m, 1, 2, 3, 0, 1, 2);
+}
+
+
+/*
+=============
+InverseMatrix
+=============
+*/
+void InverseMatrix(float m[16], float invOut[16])
+{
+	AdjointMatrix(m, invOut);
+
+	float inv_det = 1.0f / DetMatrix(m);
+	for (int i = 0; i < 16; ++i)
+		invOut[i] = invOut[i] * inv_det;
+}
