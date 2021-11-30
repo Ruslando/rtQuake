@@ -572,7 +572,6 @@ VkResult R_UpdateRaygenDescriptorSet();
 
 // Acceleration structures
 // Creates bottom level acceleration strucuture (BLAS)
-//void R_Create_BLAS(accel_struct_t* blas, qmodel_t* model, const aliashdr_t* header);
 void R_Create_BLAS();
 void R_Create_TLAS();
 static void vkpt_destroy_acceleration_structure();
