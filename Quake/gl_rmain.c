@@ -375,6 +375,52 @@ void R_SetupScene (void)
 R_SetupView
 ===============
 */
+void R_SetupView_RTX(void)
+{
+	R_PushDlights();
+	R_AnimateLight();
+	r_framecount++;
+
+	// build the transformation matrix for the given view angles
+	VectorCopy(r_refdef.vieworg, r_origin);
+	AngleVectors(r_refdef.viewangles, vpn, vright, vup);
+
+	// current viewleaf
+	r_oldviewleaf = r_viewleaf;
+	r_viewleaf = Mod_PointInLeaf(r_origin, cl.worldmodel);
+
+	V_SetContentsColor(r_viewleaf->contents);
+	V_CalcBlend();
+
+	r_cache_thrash = false;
+
+	//johnfitz -- calculate r_fovx and r_fovy here
+	r_fovx = r_refdef.fov_x;
+	r_fovy = r_refdef.fov_y;
+	render_warp = false;
+	render_scale = (int)r_scale.value;
+
+	R_SetFrustum(r_fovx, r_fovy); //johnfitz -- use r_fov* vars
+
+	R_MarkSurfaces(); //johnfitz -- create texture chains from PVS
+
+	//johnfitz -- cheat-protect some draw modes
+	r_fullbright_cheatsafe = false;
+	r_lightmap_cheatsafe = false;
+	r_drawworld_cheatsafe = true;
+	if (cl.maxclients == 1)
+	{
+		if (!r_drawworld.value) r_drawworld_cheatsafe = false;
+		if (r_fullbright.value) r_fullbright_cheatsafe = true;
+		else if (r_lightmap.value) r_lightmap_cheatsafe = true;
+	}
+}
+
+/*
+===============
+R_SetupView
+===============
+*/
 void R_SetupView (void)
 {
 	// Need to do those early because we now update dynamic light maps during R_MarkSurfaces
@@ -729,6 +775,289 @@ void R_SetupRaytracing(void)
 
 }
 
+// accel_struct_t* blas, qmodel_t* model, const aliashdr_t* header
+void R_Create_BLAS() {
+
+	VkDeviceOrHostAddressConstKHR vertex_device_or_host_address_const;
+	memset(&vertex_device_or_host_address_const, 0, sizeof(VkDeviceOrHostAddressConstKHR));
+	vertex_device_or_host_address_const.deviceAddress = vulkan_globals.vert_buffer;
+
+	VkDeviceOrHostAddressConstKHR index_device_or_host_address_const;
+	memset(&index_device_or_host_address_const, 0, sizeof(VkDeviceOrHostAddressConstKHR));
+	index_device_or_host_address_const.deviceAddress = vulkan_globals.ind_buffer;
+
+	VkDeviceOrHostAddressConstKHR transform_device_or_host_address_const;
+	memset(&transform_device_or_host_address_const, 0, sizeof(VkDeviceOrHostAddressConstKHR));
+	transform_device_or_host_address_const.deviceAddress = vulkan_globals.mem_transf;
+
+	VkAccelerationStructureGeometryTrianglesDataKHR geometry_triangles_data;
+	memset(&geometry_triangles_data, 0, sizeof(VkAccelerationStructureGeometryTrianglesDataKHR));
+	geometry_triangles_data.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+	geometry_triangles_data.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+	geometry_triangles_data.vertexData = vertex_device_or_host_address_const;
+	geometry_triangles_data.vertexStride = sizeof(float) * 3;
+	geometry_triangles_data.maxVertex = 3;
+	geometry_triangles_data.indexType = VK_INDEX_TYPE_UINT32;
+	geometry_triangles_data.indexData = index_device_or_host_address_const;
+	geometry_triangles_data.transformData = transform_device_or_host_address_const;
+
+	// setting up the geometry (in this case mesh geometry_triangles_data)
+	VkAccelerationStructureGeometryKHR geometry;
+	memset(&geometry, 0, sizeof(VkAccelerationStructureGeometryKHR));
+	geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+	geometry.geometry.triangles = geometry_triangles_data;
+	geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+	geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+
+	VkAccelerationStructureBuildGeometryInfoKHR buildInfo;
+	memset(&buildInfo, 0, sizeof(VkAccelerationStructureBuildGeometryInfoKHR));
+	// Prepare build info now, acceleration is filled later
+	buildInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+	buildInfo.pNext = VK_NULL_HANDLE;
+	buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+	buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+	buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+	buildInfo.srcAccelerationStructure = VK_NULL_HANDLE;
+	buildInfo.dstAccelerationStructure = VK_NULL_HANDLE;
+	buildInfo.geometryCount = 1;
+	buildInfo.pGeometries = &geometry;
+	buildInfo.ppGeometries = VK_NULL_HANDLE;
+	//// Create BLAS size information
+	//uint32_t max_primitive_count = header->numtris;
+
+	VkAccelerationStructureBuildSizesInfoKHR sizeInfo;
+	memset(&sizeInfo, 0, sizeof(VkAccelerationStructureBuildSizesInfoKHR));
+	sizeInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+
+	vulkan_globals.fpGetAccelerationStructureBuildSizesKHR(vulkan_globals.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &buildInfo.geometryCount, &sizeInfo);
+
+	if (!accel_matches(&vulkan_globals.blas.match, false, 9, 3)) {
+		destroy_accel_struct(&vulkan_globals.blas);
+
+		VkAccelerationStructureCreateInfoKHR createInfo;
+		memset(&createInfo, 0, sizeof(VkAccelerationStructureCreateInfoKHR));
+		createInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+		createInfo.size = sizeInfo.accelerationStructureSize;
+		createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+
+		// Create buffer for acceleration
+		buffer_create(&vulkan_globals.blas.mem, sizeInfo.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		createInfo.buffer = vulkan_globals.blas.mem.buffer;
+
+		//creates acceleration structure
+		VkResult err = vulkan_globals.fpCreateAccelerationStructureKHR(vulkan_globals.device, &createInfo, NULL, &vulkan_globals.blas.accel);
+		if (err != VK_SUCCESS)
+			Sys_Error("vkCreateAccelerationStructure failed");
+	};
+
+	// Scratch buffer
+	BufferResource_t scratch_buffer;
+	buffer_create(&scratch_buffer, sizeInfo.buildScratchSize,
+		VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	VkDeviceOrHostAddressKHR scratchDeviceOrHostAddress;
+	memset(&scratchDeviceOrHostAddress, 0, sizeof(VkDeviceOrHostAddressKHR));
+	scratchDeviceOrHostAddress.deviceAddress = scratch_buffer.address;
+
+	buildInfo.scratchData = scratchDeviceOrHostAddress;
+
+	vulkan_globals.blas.match.fast_build = 0;
+	vulkan_globals.blas.match.vertex_count = 9;
+	vulkan_globals.blas.match.index_count = 3;
+	vulkan_globals.blas.match.aabb_count = 0;
+	vulkan_globals.blas.match.instance_count = 1;
+
+	// set where the build lands
+	buildInfo.dstAccelerationStructure = vulkan_globals.blas.accel;
+
+	// build buildRange
+	VkAccelerationStructureBuildRangeInfoKHR* build_range =
+		&(VkAccelerationStructureBuildRangeInfoKHR) {
+		.primitiveCount = 1,
+		.primitiveOffset = 0,
+		.firstVertex = 0,
+		.transformOffset = 0
+	};
+	const VkAccelerationStructureBuildRangeInfoKHR** build_range_infos = &build_range;
+
+	vulkan_globals.fpCmdBuildAccelerationStructuresKHR(vulkan_globals.command_buffer, 1, &buildInfo, build_range_infos);
+
+	buffer_destroy(&scratch_buffer);
+}
+
+void R_Create_TLAS() {
+
+	uint32_t num_instances = 1;
+
+	VkTransformMatrixKHR transformMatrix;
+	memset(&transformMatrix, 0, sizeof(VkTransformMatrixKHR));
+	transformMatrix.matrix[0][0] = 1.0;
+	transformMatrix.matrix[1][1] = 1.0;
+	transformMatrix.matrix[2][2] = 1.0;
+
+	VkAccelerationStructureInstanceKHR geometryInstance;
+	memset(&geometryInstance, 0, sizeof(VkAccelerationStructureInstanceKHR));
+	geometryInstance.transform = transformMatrix;
+	geometryInstance.instanceCustomIndex = 0;
+	geometryInstance.mask = 0xFF;
+	geometryInstance.instanceShaderBindingTableRecordOffset = 0;
+	geometryInstance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+	geometryInstance.accelerationStructureReference = vulkan_globals.blas.mem.address;
+
+	VkDeviceSize geometryInstanceBufferSize = sizeof(VkAccelerationStructureInstanceKHR);
+
+	BufferResource_t geometry_buffer_instance;
+	buffer_create(&geometry_buffer_instance, geometryInstanceBufferSize, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
+		, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	void* instance_data = buffer_map(&geometry_buffer_instance);
+	memcpy(instance_data, &geometryInstance, geometryInstanceBufferSize);
+	buffer_unmap(&geometry_buffer_instance);
+
+	// Build the TLAS
+	VkAccelerationStructureGeometryDataKHR geometry = {
+		.instances = {
+			.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
+			.data = {.deviceAddress = geometry_buffer_instance.address}
+		}
+	};
+
+	VkAccelerationStructureGeometryKHR topASGeometry;
+	memset(&topASGeometry, 0, sizeof(VkAccelerationStructureGeometryKHR));
+	topASGeometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+	topASGeometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+	topASGeometry.geometry = geometry;
+	topASGeometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+
+	// Find size to build on the device
+	VkAccelerationStructureBuildGeometryInfoKHR buildInfo;
+	memset(&buildInfo, 0, sizeof(VkAccelerationStructureBuildGeometryInfoKHR));
+	buildInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+	buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR,
+		buildInfo.geometryCount = 1;
+	buildInfo.pGeometries = &topASGeometry;
+	buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+	buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+
+	VkAccelerationStructureBuildSizesInfoKHR sizeInfo;
+	memset(&sizeInfo, 0, sizeof(VkAccelerationStructureBuildSizesInfoKHR));
+	sizeInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+
+	vulkan_globals.fpGetAccelerationStructureBuildSizesKHR(vulkan_globals.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &num_instances, &sizeInfo);
+
+	if(!accel_matches_top_level(&vulkan_globals.tlas.match, 1, 1)) {
+		// Create the buffer for the acceleration structure
+		buffer_create(&vulkan_globals.tlas.mem, sizeInfo.accelerationStructureSize,
+			VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+		// Create TLAS
+		// Create acceleration structure
+		VkAccelerationStructureCreateInfoKHR createInfo = {
+			.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+			.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+			.size = sizeInfo.accelerationStructureSize,
+			.buffer = vulkan_globals.tlas.mem.buffer
+		};
+
+		// Create the acceleration structure
+		VkResult err = vulkan_globals.fpCreateAccelerationStructureKHR(vulkan_globals.device, &createInfo, NULL, &vulkan_globals.tlas.accel);
+		if (err != VK_SUCCESS)
+			Sys_Error("vkCreateAccelerationStructure failed");
+	}
+	
+
+	vulkan_globals.tlas.match.fast_build = 1;
+	vulkan_globals.tlas.match.index_count = 0;
+	vulkan_globals.tlas.match.vertex_count = 0;
+	vulkan_globals.tlas.match.aabb_count = 0;
+	vulkan_globals.tlas.match.instance_count = 1;
+
+	// scratch buffer creation
+	BufferResource_t scratch_buffer;
+	buffer_create(&scratch_buffer, sizeInfo.buildScratchSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	// Update build information
+	buildInfo.dstAccelerationStructure = vulkan_globals.tlas.accel;
+	buildInfo.scratchData.deviceAddress = scratch_buffer.address;
+
+	//// build buildRange
+	VkAccelerationStructureBuildRangeInfoKHR* build_range =
+		&(VkAccelerationStructureBuildRangeInfoKHR) {
+		.primitiveCount = 1,
+			.primitiveOffset = 0,
+			.firstVertex = 0,
+			.transformOffset = 0
+	};
+	const VkAccelerationStructureBuildRangeInfoKHR** build_range_infos = &build_range;
+
+	vulkan_globals.fpCmdBuildAccelerationStructuresKHR(vulkan_globals.command_buffer, 1, &buildInfo, build_range_infos);
+
+	buffer_destroy(&scratch_buffer);
+	buffer_destroy(&geometry_buffer_instance);
+}
+
+VkResult R_UpdateRaygenDescriptorSet()
+{
+	if (vulkan_globals.raygen_desc_set != VK_NULL_HANDLE) {
+
+		VkDescriptorImageInfo pt_output_image_info;
+		memset(&pt_output_image_info, 0, sizeof(VkDescriptorImageInfo));
+		// give access to image buffer view from vidsl 
+		pt_output_image_info.imageView = vulkan_globals.color_buffers_view;
+		//pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+		//pt_output_image_info.sampler = VK_IMAGE_LAYOUT_GENERAL;
+
+		VkWriteDescriptorSetAccelerationStructureKHR desc_accel_struct;
+		memset(&desc_accel_struct, 0, sizeof(VkWriteDescriptorSetAccelerationStructureKHR));
+		desc_accel_struct.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+		desc_accel_struct.accelerationStructureCount = 1;
+		desc_accel_struct.pAccelerationStructures = &vulkan_globals.tlas.accel;
+
+		VkWriteDescriptorSet raygen_writes[2];
+		memset(&raygen_writes, 0, 2 * sizeof(VkWriteDescriptorSet));
+		raygen_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		raygen_writes[0].pNext = &desc_accel_struct;
+		raygen_writes[0].dstBinding = 0;
+		raygen_writes[0].descriptorCount = 1;
+		raygen_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+		raygen_writes[0].dstSet = vulkan_globals.raygen_desc_set;
+
+		raygen_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		raygen_writes[1].dstBinding = 1;
+		raygen_writes[1].descriptorCount = 1;
+		raygen_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+		raygen_writes[1].dstSet = vulkan_globals.raygen_desc_set;
+		raygen_writes[1].pImageInfo = &pt_output_image_info;
+
+		vkUpdateDescriptorSets(vulkan_globals.device, 2, raygen_writes, 0, NULL);
+	}
+
+	return VK_SUCCESS;
+}
+
+void R_SetupTestAS_RTX(void)
+{
+	static accel_struct_t blas;
+	static accel_struct_t tlas;
+
+	VkMemoryBarrier memoryBarrier;
+	memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+	memoryBarrier.pNext = VK_NULL_HANDLE;
+	memoryBarrier.srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+	memoryBarrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+
+	R_Create_BLAS(&blas);
+	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
+	R_Create_TLAS(&blas, &tlas);
+	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
+	R_UpdateRaygenDescriptorSet();
+}
+
 /*
 ================
 R_RenderScene_RTX
@@ -741,7 +1070,11 @@ void R_RenderScene_RTX(void)
 
 	R_SetupMatrix_RTX();
 
+	R_SetupTestAS_RTX();
+
 	R_SetupRaytracing();
+
+	S_ExtraUpdate();
 }
 
 /*
@@ -790,8 +1123,53 @@ R_RenderView_RTX
 ================
 */
 void R_RenderView_RTX (void)
-{
+{	
+	double	time1, time2;
+
+	if (!cl.worldmodel)
+		Sys_Error("R_RenderView: NULL worldmodel");
+
+	time1 = 0; /* avoid compiler warning */
+	if (r_speeds.value)
+	{
+		time1 = Sys_DoubleTime();
+
+		//johnfitz -- rendering statistics
+		rs_brushpolys = rs_aliaspolys = rs_skypolys = rs_particles = rs_fogpolys = rs_megatexels =
+			rs_dynamiclightmaps = rs_aliaspasses = rs_skypasses = rs_brushpasses = 0;
+	}
+
+	R_SetupView_RTX();
+
 	R_RenderScene_RTX();
+
+
+	//johnfitz -- modified r_speeds output
+	time2 = Sys_DoubleTime();
+	if (r_pos.value)
+		Con_Printf("x %i y %i z %i (pitch %i yaw %i roll %i)\n",
+			(int)cl.entities[cl.viewentity].origin[0],
+			(int)cl.entities[cl.viewentity].origin[1],
+			(int)cl.entities[cl.viewentity].origin[2],
+			(int)cl.viewangles[PITCH],
+			(int)cl.viewangles[YAW],
+			(int)cl.viewangles[ROLL]);
+	else if (r_speeds.value == 2)
+		Con_Printf("%6.3f ms  %4u/%4u wpoly %4u/%4u epoly %3u lmap %4u/%4u sky\n",
+			(time2 - time1) * 1000.0,
+			rs_brushpolys,
+			rs_brushpasses,
+			rs_aliaspolys,
+			rs_aliaspasses,
+			rs_dynamiclightmaps,
+			rs_skypolys,
+			rs_skypasses);
+	else if (r_speeds.value)
+		Con_Printf("%3i ms  %4i wpoly %4i epoly %3i lmap\n",
+			(int)((time2 - time1) * 1000),
+			rs_brushpolys,
+			rs_aliaspolys,
+			rs_dynamiclightmaps);
 }
 
 

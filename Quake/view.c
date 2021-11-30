@@ -895,7 +895,7 @@ extern vrect_t	scr_vrect;
 
 void V_RenderView (void)
 {
-	// switch between raster and ray tracing
+	// TODO: switch between raster and ray tracing
 	
 	// Main (raster) render pass
 	//{
@@ -933,6 +933,11 @@ void V_RenderView (void)
 			vkCmdBeginRenderPass(vulkan_globals.command_buffer, &vulkan_globals.raygen_render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 			return;
 		}
+
+		if (cl.intermission)
+			V_CalcIntermissionRefdef();
+		else if (!cl.paused /* && (cl.maxclients > 1 || key_dest == key_game) */)
+			V_CalcRefdef();
 
 		R_RenderView_RTX();
 

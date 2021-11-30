@@ -146,6 +146,29 @@ typedef struct camera_pushconstants_s {
 	float proj_inverse[16];
 } camera_pushconstants_t;
 
+typedef struct BufferResource_s {
+	VkBuffer buffer;
+	VkDeviceMemory memory;
+	VkDeviceAddress address;
+	size_t size;
+	int is_mapped;
+} BufferResource_t;
+
+typedef struct accel_match_info_s {
+	int fast_build;
+	uint32_t vertex_count;
+	uint32_t index_count;
+	uint32_t aabb_count;
+	uint32_t instance_count;
+} accel_match_info_t;
+
+typedef struct accel_struct_s {
+	VkAccelerationStructureKHR accel;
+	accel_match_info_t match;
+	BufferResource_t mem;
+	qboolean present;
+} accel_struct_t;
+
 typedef struct vulkan_pipeline_layout_s {
 	VkPipelineLayout		handle;
 	VkPushConstantRange		push_constant_range;
@@ -192,6 +215,18 @@ typedef struct
 	qboolean							non_solid_fill;
 	qboolean							screen_effects_sops;
 
+	////TEMP
+
+	VkDeviceAddress						vert_buffer;
+	VkDeviceAddress						ind_buffer;
+	VkDeviceAddress						mem_transf;
+
+	// Acceleration structures
+	accel_struct_t						blas;
+	accel_struct_t						tlas;
+
+	VkImageView							color_buffers_view;
+
 	// Instance extensions
 	qboolean							get_surface_capabilities_2;
 	qboolean							get_physical_device_properties_2;
@@ -218,9 +253,15 @@ typedef struct
 	int									staging_buffer_size;
 
 	// Device procedures
-	PFN_vkCreateRayTracingPipelinesKHR	fpCreateRayTracingPipelinesKHR;
-	PFN_vkGetRayTracingShaderGroupHandlesKHR	fpGetRayTracingShaderGroupHandlesKHR;
-	PFN_vkCmdTraceRaysKHR				fpCmdTraceRaysKHR;
+	PFN_vkCreateRayTracingPipelinesKHR				fpCreateRayTracingPipelinesKHR;
+	PFN_vkGetRayTracingShaderGroupHandlesKHR		fpGetRayTracingShaderGroupHandlesKHR;
+	PFN_vkCmdTraceRaysKHR							fpCmdTraceRaysKHR;
+
+	PFN_vkGetAccelerationStructureBuildSizesKHR		fpGetAccelerationStructureBuildSizesKHR;
+	PFN_vkCreateAccelerationStructureKHR			fpCreateAccelerationStructureKHR;
+	PFN_vkDestroyAccelerationStructureKHR			fpDestroyAccelerationStructureKHR;
+	PFN_vkCmdBuildAccelerationStructuresKHR			fpCmdBuildAccelerationStructuresKHR;
+	PFN_vkGetAccelerationStructureDeviceAddressKHR	fpGetAccelerationStructureDeviceAddressKHR;
 
 	// Render passes
 	VkRenderPass						main_render_pass;
@@ -279,9 +320,6 @@ typedef struct
 	vulkan_desc_set_layout_t			single_texture_cs_write_set_layout;
 	VkDescriptorSet						raygen_desc_set;
 	vulkan_desc_set_layout_t			raygen_set_layout;
-
-	// Acceleration Structures
-	VkAccelerationStructureKHR			top_level_accel_structure;
 
 	// Ray generation shader regions
 	VkStridedDeviceAddressRegionKHR		rt_gen_region;
@@ -520,6 +558,27 @@ void R_InitSamplers();
 void R_CreatePipelineLayouts();
 void R_CreatePipelines();
 void R_DestroyPipelines();
+
+// Utils
+VkResult buffer_create(BufferResource_t* buf, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags mem_properties);
+uint32_t get_memory_type(uint32_t mem_req_type_bits, VkMemoryPropertyFlags mem_prop);
+VkDeviceAddress get_buffer_device_address(VkBuffer buffer);
+VkResult buffer_destroy(BufferResource_t* buf);
+void* buffer_map(BufferResource_t* buf);
+void buffer_unmap(BufferResource_t* buf);
+
+// path tracing
+VkResult R_UpdateRaygenDescriptorSet();
+
+// Acceleration structures
+// Creates bottom level acceleration strucuture (BLAS)
+//void R_Create_BLAS(accel_struct_t* blas, qmodel_t* model, const aliashdr_t* header);
+void R_Create_BLAS();
+void R_Create_TLAS();
+static void vkpt_destroy_acceleration_structure();
+int accel_matches(accel_match_info_t* match,int fast_build,uint32_t vertex_count,uint32_t index_count);
+int accel_matches_top_level(accel_match_info_t* match, int fast_build, uint32_t instance_count);
+void destroy_accel_struct(accel_struct_t* blas);
 
 
 #define MAX_PUSH_CONSTANT_SIZE 128 // Vulkan guaranteed minimum maxPushConstantsSize

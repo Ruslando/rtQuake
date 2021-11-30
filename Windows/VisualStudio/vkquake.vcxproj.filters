@@ -558,9 +558,6 @@
     <ClInclude Include="..\..\Quake\gl_heap.h">
       <Filter>Renderer</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Quake\r_util.h">
-      <Filter>Renderer</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\vkQuake.rc">

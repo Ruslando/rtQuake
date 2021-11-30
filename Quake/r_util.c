@@ -81,6 +81,39 @@ buffer_unmap(BufferResource_t* buf)
 	vkUnmapMemory(vulkan_globals.device, buf->memory);
 }
 
+int accel_matches(accel_match_info_t* match,
+	int fast_build,
+	uint32_t vertex_count,
+	uint32_t index_count) {
+	return match->fast_build == fast_build &&
+		match->vertex_count >= vertex_count &&
+		match->index_count >= index_count;
+}
+
+int accel_matches_top_level(accel_match_info_t* match,
+	int fast_build,
+	uint32_t instance_count) {
+	return match->fast_build == fast_build &&
+		match->instance_count >= instance_count;
+}
+
+void destroy_accel_struct(accel_struct_t* blas)
+{
+	buffer_destroy(&blas->mem);
+
+	if (blas->accel)
+	{
+		vulkan_globals.fpDestroyAccelerationStructureKHR(vulkan_globals.device, blas->accel, NULL);
+		blas->accel = VK_NULL_HANDLE;
+	}
+
+	blas->match.fast_build = 0;
+	blas->match.index_count = 0;
+	blas->match.vertex_count = 0;
+	blas->match.aabb_count = 0;
+	blas->match.instance_count = 0;
+}
+
 VkResult
 buffer_create(
 	BufferResource_t* buf,
