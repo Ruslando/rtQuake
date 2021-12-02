@@ -565,19 +565,19 @@ void R_DrawViewModel (void)
 	R_BeginDebugUtilsLabel ("View Model");
 
 	// hack the depth range to prevent view model from poking into walls
-	GL_Viewport(glx + r_refdef.vrect.x,
+	/*GL_Viewport(glx + r_refdef.vrect.x,
 				gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height,
 				r_refdef.vrect.width,
 				r_refdef.vrect.height,
-				0.7f, 1.0f);
+				0.7f, 1.0f);*/
 	
 	R_DrawAliasModel (currententity);
 
-	GL_Viewport(glx + r_refdef.vrect.x,
+	/*GL_Viewport(glx + r_refdef.vrect.x,
 				gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height,
 				r_refdef.vrect.width,
 				r_refdef.vrect.height,
-				0.0f, 1.0f);
+				0.0f, 1.0f);*/
 
 	R_EndDebugUtilsLabel ();
 }
@@ -772,7 +772,6 @@ void R_SetupRaytracing(void)
 
 	vulkan_globals.fpCmdTraceRaysKHR(vulkan_globals.command_buffer, &vulkan_globals.rt_gen_region, &vulkan_globals.rt_miss_region, &vulkan_globals.rt_hit_region, &vulkan_globals.rt_call_region,
 		1280, 720, 1);
-
 }
 
 // accel_struct_t* blas, qmodel_t* model, const aliashdr_t* header
@@ -1069,6 +1068,8 @@ void R_RenderScene_RTX(void)
 	currententity = &r_worldentity;
 
 	R_SetupMatrix_RTX();
+
+	//R_DrawViewModel();
 
 	R_SetupTestAS_RTX();
 

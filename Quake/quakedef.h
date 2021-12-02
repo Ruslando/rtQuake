@@ -263,7 +263,6 @@ typedef struct
 #include "sbar.h"
 #include "q_sound.h"
 #include "client.h"
-#include "r_util.h"
 
 #include "gl_model.h"
 #include "world.h"

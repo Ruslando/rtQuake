@@ -3037,6 +3037,7 @@ static void Mod_LoadAliasModel (qmodel_t *mod, void *buffer)
 	//
 	// build the draw lists
 	//
+
 	GL_MakeAliasModelDisplayLists (mod, pheader);
 
 //

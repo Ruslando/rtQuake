@@ -675,7 +675,8 @@ void GL_BuildBModelVertexBuffer (void)
 	memset(&buffer_create_info, 0, sizeof(buffer_create_info));
 	buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	buffer_create_info.size = varray_bytes;
-	buffer_create_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	buffer_create_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+	/*| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT*/;
 	err = vkCreateBuffer(vulkan_globals.device, &buffer_create_info, NULL, &bmodel_vertex_buffer);
 	if (err != VK_SUCCESS)
 		Sys_Error("vkCreateBuffer failed");
@@ -695,6 +696,14 @@ void GL_BuildBModelVertexBuffer (void)
 	memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 	memory_allocate_info.allocationSize = aligned_size;
 	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+
+	/*VkMemoryAllocateFlagsInfo mem_alloc_flags = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+		.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
+		.deviceMask = 0
+	};
+
+	memory_allocate_info.pNext = &mem_alloc_flags;*/
 
 	num_vulkan_bmodel_allocations += 1;
 	err = vkAllocateMemory(vulkan_globals.device, &memory_allocate_info, NULL, &bmodel_memory);
