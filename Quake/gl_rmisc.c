@@ -373,13 +373,13 @@ static void R_CreateStagingBuffers()
 	memory_allocate_info.allocationSize = NUM_STAGING_BUFFERS * aligned_size;
 	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
 
-	/*VkMemoryAllocateFlagsInfo mem_alloc_flags = {
+	VkMemoryAllocateFlagsInfo mem_alloc_flags = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
 		.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
 		.deviceMask = 0
 	};
 
-	memory_allocate_info.pNext = &mem_alloc_flags;*/
+	memory_allocate_info.pNext = &mem_alloc_flags;
 
 	num_vulkan_misc_allocations += 1;
 	err = vkAllocateMemory(vulkan_globals.device, &memory_allocate_info, NULL, &staging_memory);
@@ -625,7 +625,7 @@ static void R_InitDynamicVertexBuffers()
 	memset(&buffer_create_info, 0, sizeof(buffer_create_info));
 	buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	buffer_create_info.size = current_dyn_vertex_buffer_size;
-	buffer_create_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT /*| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT*/;
+	buffer_create_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
 	for (i = 0; i < NUM_DYNAMIC_BUFFERS; ++i)
 	{
@@ -652,13 +652,13 @@ static void R_InitDynamicVertexBuffers()
 	memory_allocate_info.allocationSize = NUM_DYNAMIC_BUFFERS * aligned_size;
 	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
 
-	/*VkMemoryAllocateFlagsInfo mem_alloc_flags = {
+	VkMemoryAllocateFlagsInfo mem_alloc_flags = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
 		.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
 		.deviceMask = 0
 	};
 
-	memory_allocate_info.pNext = &mem_alloc_flags;*/
+	memory_allocate_info.pNext = &mem_alloc_flags;
 
 	num_vulkan_dynbuf_allocations += 1;
 	err = vkAllocateMemory(vulkan_globals.device, &memory_allocate_info, NULL, &dyn_vertex_buffer_memory);
@@ -700,8 +700,8 @@ static void R_InitDynamicIndexBuffers()
 	memset(&buffer_create_info, 0, sizeof(buffer_create_info));
 	buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	buffer_create_info.size = current_dyn_index_buffer_size;
-	buffer_create_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT /*|
-		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT*/;
+	buffer_create_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
 	for (i = 0; i < NUM_DYNAMIC_BUFFERS; ++i)
 	{
@@ -728,13 +728,13 @@ static void R_InitDynamicIndexBuffers()
 	memory_allocate_info.allocationSize = NUM_DYNAMIC_BUFFERS * aligned_size;
 	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
 
-	/*VkMemoryAllocateFlagsInfo mem_alloc_flags = {
+	VkMemoryAllocateFlagsInfo mem_alloc_flags = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
 		.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
 		.deviceMask = 0
 	};
 
-	memory_allocate_info.pNext = &mem_alloc_flags;*/
+	memory_allocate_info.pNext = &mem_alloc_flags;
 
 	num_vulkan_dynbuf_allocations += 1;
 	err = vkAllocateMemory(vulkan_globals.device, &memory_allocate_info, NULL, &dyn_index_buffer_memory);
@@ -776,8 +776,8 @@ static void R_InitDynamicUniformBuffers()
 	memset(&buffer_create_info, 0, sizeof(buffer_create_info));
 	buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	buffer_create_info.size = current_dyn_uniform_buffer_size;
-	buffer_create_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT /*|
-		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT*/;
+	buffer_create_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
 	for (i = 0; i < NUM_DYNAMIC_BUFFERS; ++i)
 	{
@@ -804,13 +804,13 @@ static void R_InitDynamicUniformBuffers()
 	memory_allocate_info.allocationSize = NUM_DYNAMIC_BUFFERS * aligned_size;
 	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
 
-	/*VkMemoryAllocateFlagsInfo mem_alloc_flags = {
+	VkMemoryAllocateFlagsInfo mem_alloc_flags = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
 		.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
 		.deviceMask = 0
 	};
 
-	memory_allocate_info.pNext = &mem_alloc_flags;*/
+	memory_allocate_info.pNext = &mem_alloc_flags;
 
 	num_vulkan_dynbuf_allocations += 1;
 	err = vkAllocateMemory(vulkan_globals.device, &memory_allocate_info, NULL, &dyn_uniform_buffer_memory);
@@ -898,13 +898,13 @@ static void R_InitFanIndexBuffer()
 	memory_allocate_info.allocationSize = memory_requirements.size;
 	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
 
-	/*VkMemoryAllocateFlagsInfo mem_alloc_flags = {
+	VkMemoryAllocateFlagsInfo mem_alloc_flags = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
 		.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
 		.deviceMask = 0
 	};
 
-	memory_allocate_info.pNext = &mem_alloc_flags;*/
+	memory_allocate_info.pNext = &mem_alloc_flags;
 
 	num_vulkan_dynbuf_allocations += 1;
 	err = vkAllocateMemory(vulkan_globals.device, &memory_allocate_info, NULL, &memory);

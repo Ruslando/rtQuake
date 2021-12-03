@@ -575,7 +575,7 @@ VkResult R_UpdateRaygenDescriptorSet();
 void R_Create_BLAS();
 void R_Create_TLAS();
 static void vkpt_destroy_acceleration_structure();
-int accel_matches(accel_match_info_t* match,int fast_build,uint32_t vertex_count,uint32_t index_count);
+int accel_matches(accel_match_info_t* match, int fast_build,uint32_t vertex_count,uint32_t index_count);
 int accel_matches_top_level(accel_match_info_t* match, int fast_build, uint32_t instance_count);
 void destroy_accel_struct(accel_struct_t* blas);
 

@@ -2235,6 +2235,9 @@ static void GL_DestroyRenderResources(void)
 		main_framebuffers[i] = VK_NULL_HANDLE;
 	}
 
+	vkDestroyFramebuffer(vulkan_globals.device, raytrace_framebuffer, NULL);
+	raytrace_framebuffer = VK_NULL_HANDLE;
+
 	for (i = 0; i < num_swap_chain_images; ++i)
 	{
 		vkDestroyImageView(vulkan_globals.device, swapchain_images_views[i], NULL);
@@ -2257,6 +2260,10 @@ static void GL_DestroyRenderResources(void)
 
 	vkDestroyRenderPass(vulkan_globals.device, vulkan_globals.ui_render_pass, NULL);
 	vulkan_globals.ui_render_pass = VK_NULL_HANDLE;
+
+	vkDestroyRenderPass(vulkan_globals.device, vulkan_globals.raygen_render_pass, NULL);
+	vulkan_globals.raygen_render_pass = VK_NULL_HANDLE;
+
 	vkDestroyRenderPass(vulkan_globals.device, vulkan_globals.main_render_pass, NULL);
 	vulkan_globals.main_render_pass = VK_NULL_HANDLE;
 }

@@ -45,13 +45,13 @@ glheap_t * GL_CreateHeap(VkDeviceSize size, uint32_t memory_type_index, const ch
 	memory_allocate_info.allocationSize = size;
 	memory_allocate_info.memoryTypeIndex = memory_type_index;
 
-	/*VkMemoryAllocateFlagsInfo mem_alloc_flags = {
+	VkMemoryAllocateFlagsInfo mem_alloc_flags = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
 		.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
 		.deviceMask = 0
 	};
 
-	memory_allocate_info.pNext = &mem_alloc_flags;*/
+	memory_allocate_info.pNext = &mem_alloc_flags;
 
 	VkResult err = vkAllocateMemory(vulkan_globals.device, &memory_allocate_info, NULL, &heap->memory);
 	if (err != VK_SUCCESS)

@@ -17,8 +17,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
-#include "r_util.h"
-
+#include "quakedef.h"
 
 uint32_t
 get_memory_type(uint32_t mem_req_type_bits, VkMemoryPropertyFlags mem_prop)

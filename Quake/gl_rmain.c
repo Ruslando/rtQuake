@@ -312,8 +312,8 @@ void R_SetupMatrix_RTX()
 	InverseMatrix(vulkan_globals.view_matrix, inverse_matrices.view_inverse);
 	InverseMatrix(vulkan_globals.projection_matrix, inverse_matrices.proj_inverse);
 
-	/*R_BindPipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline);
-	R_PushConstants(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, 0, sizeof(inverse_matrices), &inverse_matrices);*/
+	R_BindPipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline);
+	R_PushConstants(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, 0, sizeof(inverse_matrices), &inverse_matrices);
 }
 
 /*
@@ -787,7 +787,7 @@ void R_Create_BLAS() {
 
 	VkDeviceOrHostAddressConstKHR transform_device_or_host_address_const;
 	memset(&transform_device_or_host_address_const, 0, sizeof(VkDeviceOrHostAddressConstKHR));
-	transform_device_or_host_address_const.deviceAddress = vulkan_globals.mem_transf;
+	//transform_device_or_host_address_const.deviceAddress = vulkan_globals.mem_transf;
 
 	VkAccelerationStructureGeometryTrianglesDataKHR geometry_triangles_data;
 	memset(&geometry_triangles_data, 0, sizeof(VkAccelerationStructureGeometryTrianglesDataKHR));
@@ -821,14 +821,15 @@ void R_Create_BLAS() {
 	buildInfo.geometryCount = 1;
 	buildInfo.pGeometries = &geometry;
 	buildInfo.ppGeometries = VK_NULL_HANDLE;
+
 	//// Create BLAS size information
-	//uint32_t max_primitive_count = header->numtris;
+	uint32_t max_primitive_count = 1;
 
 	VkAccelerationStructureBuildSizesInfoKHR sizeInfo;
 	memset(&sizeInfo, 0, sizeof(VkAccelerationStructureBuildSizesInfoKHR));
 	sizeInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
 
-	vulkan_globals.fpGetAccelerationStructureBuildSizesKHR(vulkan_globals.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &buildInfo.geometryCount, &sizeInfo);
+	vulkan_globals.fpGetAccelerationStructureBuildSizesKHR(vulkan_globals.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &max_primitive_count, &sizeInfo);
 
 	if (!accel_matches(&vulkan_globals.blas.match, false, 9, 3)) {
 		destroy_accel_struct(&vulkan_globals.blas);
@@ -883,7 +884,7 @@ void R_Create_BLAS() {
 
 	vulkan_globals.fpCmdBuildAccelerationStructuresKHR(vulkan_globals.command_buffer, 1, &buildInfo, build_range_infos);
 
-	buffer_destroy(&scratch_buffer);
+	//buffer_destroy(&scratch_buffer);
 }
 
 void R_Create_TLAS() {
@@ -908,8 +909,8 @@ void R_Create_TLAS() {
 	VkDeviceSize geometryInstanceBufferSize = sizeof(VkAccelerationStructureInstanceKHR);
 
 	BufferResource_t geometry_buffer_instance;
-	buffer_create(&geometry_buffer_instance, geometryInstanceBufferSize, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
-		, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+	buffer_create(&geometry_buffer_instance, geometryInstanceBufferSize, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
 	void* instance_data = buffer_map(&geometry_buffer_instance);
 	memcpy(instance_data, &geometryInstance, geometryInstanceBufferSize);
@@ -935,7 +936,7 @@ void R_Create_TLAS() {
 	memset(&buildInfo, 0, sizeof(VkAccelerationStructureBuildGeometryInfoKHR));
 	buildInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
 	buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR,
-		buildInfo.geometryCount = 1;
+	buildInfo.geometryCount = 1;
 	buildInfo.pGeometries = &topASGeometry;
 	buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
 	buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
@@ -949,7 +950,7 @@ void R_Create_TLAS() {
 	if(!accel_matches_top_level(&vulkan_globals.tlas.match, 1, 1)) {
 		// Create the buffer for the acceleration structure
 		buffer_create(&vulkan_globals.tlas.mem, sizeInfo.accelerationStructureSize,
-			VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
 		// Create TLAS
@@ -967,7 +968,6 @@ void R_Create_TLAS() {
 			Sys_Error("vkCreateAccelerationStructure failed");
 	}
 	
-
 	vulkan_globals.tlas.match.fast_build = 1;
 	vulkan_globals.tlas.match.index_count = 0;
 	vulkan_globals.tlas.match.vertex_count = 0;
@@ -987,16 +987,16 @@ void R_Create_TLAS() {
 	VkAccelerationStructureBuildRangeInfoKHR* build_range =
 		&(VkAccelerationStructureBuildRangeInfoKHR) {
 		.primitiveCount = 1,
-			.primitiveOffset = 0,
-			.firstVertex = 0,
-			.transformOffset = 0
+		.primitiveOffset = 0,
+		.firstVertex = 0,
+		.transformOffset = 0
 	};
 	const VkAccelerationStructureBuildRangeInfoKHR** build_range_infos = &build_range;
 
 	vulkan_globals.fpCmdBuildAccelerationStructuresKHR(vulkan_globals.command_buffer, 1, &buildInfo, build_range_infos);
 
-	buffer_destroy(&scratch_buffer);
-	buffer_destroy(&geometry_buffer_instance);
+	/*buffer_destroy(&scratch_buffer);
+	buffer_destroy(&geometry_buffer_instance);*/
 }
 
 VkResult R_UpdateRaygenDescriptorSet()
@@ -1007,7 +1007,6 @@ VkResult R_UpdateRaygenDescriptorSet()
 		memset(&pt_output_image_info, 0, sizeof(VkDescriptorImageInfo));
 		// give access to image buffer view from vidsl 
 		pt_output_image_info.imageView = vulkan_globals.color_buffers_view;
-		//pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 		//pt_output_image_info.sampler = VK_IMAGE_LAYOUT_GENERAL;
 
@@ -1041,18 +1040,15 @@ VkResult R_UpdateRaygenDescriptorSet()
 
 void R_SetupTestAS_RTX(void)
 {
-	static accel_struct_t blas;
-	static accel_struct_t tlas;
-
 	VkMemoryBarrier memoryBarrier;
 	memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
 	memoryBarrier.pNext = VK_NULL_HANDLE;
 	memoryBarrier.srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
 	memoryBarrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
 
-	R_Create_BLAS(&blas);
+	//R_Create_BLAS();
 	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
-	R_Create_TLAS(&blas, &tlas);
+	R_Create_TLAS();
 	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
 	R_UpdateRaygenDescriptorSet();
 }
@@ -1069,7 +1065,7 @@ void R_RenderScene_RTX(void)
 
 	R_SetupMatrix_RTX();
 
-	//R_DrawViewModel();
+	R_DrawViewModel();
 
 	R_SetupTestAS_RTX();
 
