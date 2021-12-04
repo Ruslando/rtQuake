@@ -141,6 +141,8 @@ extern int r_trace_line_cache_counter;
 #define InvalidateTraceLineCache()
 #endif
 
+// Ray generation shader structs
+
 typedef struct camera_pushconstants_s {
 	float view_inverse[16];
 	float proj_inverse[16];
@@ -169,6 +171,12 @@ typedef struct accel_struct_s {
 	qboolean present;
 } accel_struct_t;
 
+typedef struct raygen_desc_set_items_s {
+	VkImageView color_buffers_view;
+	accel_struct_t tlas;
+	VkBuffer uniform_buffer;
+}raygen_desc_set_items_t;
+
 typedef struct vulkan_pipeline_layout_s {
 	VkPipelineLayout		handle;
 	VkPushConstantRange		push_constant_range;
@@ -184,6 +192,7 @@ typedef struct vulkan_desc_set_layout_s {
 	int							num_combined_image_samplers;
 	int							num_ubos_dynamic;
 	int							num_input_attachments;
+	int							num_storage_vertex;
 	int							num_tlas;
 	int							num_storage_images;
 } vulkan_desc_set_layout_t;
@@ -215,17 +224,11 @@ typedef struct
 	qboolean							non_solid_fill;
 	qboolean							screen_effects_sops;
 
-	////TEMP
-
-	VkDeviceAddress						vert_buffer;
-	VkDeviceAddress						ind_buffer;
-	VkDeviceAddress						mem_transf;
+	// Raygen descriptor set items
+	raygen_desc_set_items_t				raygen_desc_set_items;
 
 	// Acceleration structures
 	accel_struct_t						blas;
-	accel_struct_t						tlas;
-
-	VkImageView							color_buffers_view;
 
 	// Instance extensions
 	qboolean							get_surface_capabilities_2;
@@ -318,6 +321,7 @@ typedef struct
 	VkDescriptorSet						screen_warp_desc_set;
 	vulkan_desc_set_layout_t			screen_warp_set_layout;
 	vulkan_desc_set_layout_t			single_texture_cs_write_set_layout;
+	vulkan_desc_set_layout_t			model_vertex_set_layout;
 	VkDescriptorSet						raygen_desc_set;
 	vulkan_desc_set_layout_t			raygen_set_layout;
 

@@ -1607,9 +1607,7 @@ static void GL_CreateColorBuffer(void)
 			Sys_Error("vkCreateImageView failed");
 
 		GL_SetObjectName((uint64_t)color_buffers_view[i], VK_OBJECT_TYPE_IMAGE_VIEW, va("Color Buffer View %d", i));
-
-		// TODO: Remove temporary assignment
-		vulkan_globals.color_buffers_view = color_buffers_view[0];
+		vulkan_globals.raygen_desc_set_items.color_buffers_view = color_buffers_view[0];
 	}
 
 	vulkan_globals.sample_count = VK_SAMPLE_COUNT_1_BIT;
@@ -1776,40 +1774,6 @@ static void GL_CreateDescriptorSets(void)
 	screen_warp_writes[1].pImageInfo = &output_image_info;
 
 	vkUpdateDescriptorSets(vulkan_globals.device, 2, screen_warp_writes, 0, NULL);
-
-	assert(vulkan_globals.raygen_desc_set == VK_NULL_HANDLE);
-	vulkan_globals.raygen_desc_set = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
-
-	VkDescriptorImageInfo pt_output_image_info;
-	memset(&pt_output_image_info, 0, sizeof(pt_output_image_info));
-	pt_output_image_info.imageView = color_buffers_view[0];
-	//pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-	//pt_output_image_info.sampler = VK_DESCRIPTOR_TYPE_SAMPLER;
-
-	VkWriteDescriptorSetAccelerationStructureKHR desc_accel_struct;
-	memset(&desc_accel_struct, 0, sizeof(desc_accel_struct));
-	desc_accel_struct.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
-	desc_accel_struct.accelerationStructureCount = 1;
-	desc_accel_struct.pAccelerationStructures = &vulkan_globals.tlas.accel;
-
-	VkWriteDescriptorSet raygen_writes[2];
-	memset(&raygen_writes, 0, sizeof(raygen_writes));
-	raygen_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[0].pNext = &desc_accel_struct;
-	raygen_writes[0].dstBinding = 0;
-	raygen_writes[0].descriptorCount = 1;
-	raygen_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-	raygen_writes[0].dstSet = vulkan_globals.raygen_desc_set;
-
-	raygen_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[1].dstBinding = 1;
-	raygen_writes[1].descriptorCount = 1;
-	raygen_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	raygen_writes[1].dstSet = vulkan_globals.raygen_desc_set;
-	raygen_writes[1].pImageInfo = &pt_output_image_info;
-
-	vkUpdateDescriptorSets(vulkan_globals.device, 2, raygen_writes, 0, NULL);
 }
 
 /*
@@ -2838,54 +2802,6 @@ void	VID_Init(void)
 	R_CreatePipelineLayouts();
 
 	GL_CreateRenderResources();
-
-	const float vertices[9] = {
-		0.25f, 0.25f, 0.0f,
-		0.75f, 0.25f, 0.0f,
-		0.50f, 0.75f, 0.0f
-	};
-
-	const uint32_t indices[3] = { 0, 1, 2 };
-
-	BufferResource_t vertex_buffer_resource;
-	BufferResource_t index_buffer_resource;
-
-	VkResult err = buffer_create(&vertex_buffer_resource, sizeof(vertices), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |  VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-	VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT);
-	if (err != VK_SUCCESS)
-		Sys_Error("Buffer creation failed");
-
-	void* mem_vert = buffer_map(&vertex_buffer_resource);
-	memcpy(mem_vert, vertices, vertex_buffer_resource.size);
-	buffer_unmap(&vertex_buffer_resource);
-	mem_vert = NULL;
-
-	buffer_create(&index_buffer_resource, sizeof(indices), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-		VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT);
-
-	void* mem_ind = buffer_map(&index_buffer_resource);
-	memcpy(mem_ind, &indices, index_buffer_resource.size);
-	buffer_unmap(&index_buffer_resource);
-	mem_ind = NULL;
-
-	VkTransformMatrixKHR transform;
-	memset(&transform, 0, sizeof(VkTransformMatrixKHR));
-	transform.matrix[0][0] = 1.0;
-	transform.matrix[1][1] = 1.0;
-	transform.matrix[2][2] = 1.0;
-
-	BufferResource_t transform_buffer_instance;
-	buffer_create(&transform_buffer_instance, sizeof(VkTransformMatrixKHR), VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-		VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT);
-
-	void* mem_transf = buffer_map(&transform_buffer_instance);
-	memcpy(mem_transf, &transform, transform_buffer_instance.size);
-	buffer_unmap(&transform_buffer_instance);
-	mem_transf = NULL;
-
-	vulkan_globals.vert_buffer = vertex_buffer_resource.address;
-	vulkan_globals.ind_buffer = index_buffer_resource.address;
-	vulkan_globals.mem_transf = transform_buffer_instance.address;
 
 	//johnfitz -- removed code creating "glquake" subdirectory
 

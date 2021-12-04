@@ -283,10 +283,10 @@ static void GL_FrustumMatrix(float matrix[16], float fovx, float fovy)
 
 /*
 =============
-R_SetupMatrix_RTX
+R_SetupCameraMatrices_RTX
 =============
 */
-void R_SetupMatrix_RTX()
+void R_SetupCameraMatrices_RTX()
 {
 	// Projection matrix
 	GL_FrustumMatrix(vulkan_globals.projection_matrix, DEG2RAD(r_fovx), DEG2RAD(r_fovy));
@@ -313,7 +313,17 @@ void R_SetupMatrix_RTX()
 	InverseMatrix(vulkan_globals.projection_matrix, inverse_matrices.proj_inverse);
 
 	R_BindPipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline);
-	R_PushConstants(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, 0, sizeof(inverse_matrices), &inverse_matrices);
+
+	BufferResource_t uniform_buffer_resource;
+	buffer_create(&uniform_buffer_resource, sizeof(camera_pushconstants_t), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	void* data = buffer_map(&uniform_buffer_resource);
+	memcpy(data, &inverse_matrices, sizeof(camera_pushconstants_t));
+	buffer_unmap(&uniform_buffer_resource);
+
+	vulkan_globals.raygen_desc_set_items.uniform_buffer = uniform_buffer_resource.buffer;
+	//R_PushConstants(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, 0, sizeof(inverse_matrices), &inverse_matrices);
+
 }
 
 /*
@@ -774,121 +784,7 @@ void R_SetupRaytracing(void)
 		1280, 720, 1);
 }
 
-// accel_struct_t* blas, qmodel_t* model, const aliashdr_t* header
-void R_Create_BLAS() {
-
-	VkDeviceOrHostAddressConstKHR vertex_device_or_host_address_const;
-	memset(&vertex_device_or_host_address_const, 0, sizeof(VkDeviceOrHostAddressConstKHR));
-	vertex_device_or_host_address_const.deviceAddress = vulkan_globals.vert_buffer;
-
-	VkDeviceOrHostAddressConstKHR index_device_or_host_address_const;
-	memset(&index_device_or_host_address_const, 0, sizeof(VkDeviceOrHostAddressConstKHR));
-	index_device_or_host_address_const.deviceAddress = vulkan_globals.ind_buffer;
-
-	VkDeviceOrHostAddressConstKHR transform_device_or_host_address_const;
-	memset(&transform_device_or_host_address_const, 0, sizeof(VkDeviceOrHostAddressConstKHR));
-	//transform_device_or_host_address_const.deviceAddress = vulkan_globals.mem_transf;
-
-	VkAccelerationStructureGeometryTrianglesDataKHR geometry_triangles_data;
-	memset(&geometry_triangles_data, 0, sizeof(VkAccelerationStructureGeometryTrianglesDataKHR));
-	geometry_triangles_data.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-	geometry_triangles_data.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-	geometry_triangles_data.vertexData = vertex_device_or_host_address_const;
-	geometry_triangles_data.vertexStride = sizeof(float) * 3;
-	geometry_triangles_data.maxVertex = 3;
-	geometry_triangles_data.indexType = VK_INDEX_TYPE_UINT32;
-	geometry_triangles_data.indexData = index_device_or_host_address_const;
-	geometry_triangles_data.transformData = transform_device_or_host_address_const;
-
-	// setting up the geometry (in this case mesh geometry_triangles_data)
-	VkAccelerationStructureGeometryKHR geometry;
-	memset(&geometry, 0, sizeof(VkAccelerationStructureGeometryKHR));
-	geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-	geometry.geometry.triangles = geometry_triangles_data;
-	geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-	geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
-
-	VkAccelerationStructureBuildGeometryInfoKHR buildInfo;
-	memset(&buildInfo, 0, sizeof(VkAccelerationStructureBuildGeometryInfoKHR));
-	// Prepare build info now, acceleration is filled later
-	buildInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-	buildInfo.pNext = VK_NULL_HANDLE;
-	buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-	buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-	buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-	buildInfo.srcAccelerationStructure = VK_NULL_HANDLE;
-	buildInfo.dstAccelerationStructure = VK_NULL_HANDLE;
-	buildInfo.geometryCount = 1;
-	buildInfo.pGeometries = &geometry;
-	buildInfo.ppGeometries = VK_NULL_HANDLE;
-
-	//// Create BLAS size information
-	uint32_t max_primitive_count = 1;
-
-	VkAccelerationStructureBuildSizesInfoKHR sizeInfo;
-	memset(&sizeInfo, 0, sizeof(VkAccelerationStructureBuildSizesInfoKHR));
-	sizeInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-
-	vulkan_globals.fpGetAccelerationStructureBuildSizesKHR(vulkan_globals.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &max_primitive_count, &sizeInfo);
-
-	if (!accel_matches(&vulkan_globals.blas.match, false, 9, 3)) {
-		destroy_accel_struct(&vulkan_globals.blas);
-
-		VkAccelerationStructureCreateInfoKHR createInfo;
-		memset(&createInfo, 0, sizeof(VkAccelerationStructureCreateInfoKHR));
-		createInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-		createInfo.size = sizeInfo.accelerationStructureSize;
-		createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-
-		// Create buffer for acceleration
-		buffer_create(&vulkan_globals.blas.mem, sizeInfo.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-		createInfo.buffer = vulkan_globals.blas.mem.buffer;
-
-		//creates acceleration structure
-		VkResult err = vulkan_globals.fpCreateAccelerationStructureKHR(vulkan_globals.device, &createInfo, NULL, &vulkan_globals.blas.accel);
-		if (err != VK_SUCCESS)
-			Sys_Error("vkCreateAccelerationStructure failed");
-	};
-
-	// Scratch buffer
-	BufferResource_t scratch_buffer;
-	buffer_create(&scratch_buffer, sizeInfo.buildScratchSize,
-		VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-	VkDeviceOrHostAddressKHR scratchDeviceOrHostAddress;
-	memset(&scratchDeviceOrHostAddress, 0, sizeof(VkDeviceOrHostAddressKHR));
-	scratchDeviceOrHostAddress.deviceAddress = scratch_buffer.address;
-
-	buildInfo.scratchData = scratchDeviceOrHostAddress;
-
-	vulkan_globals.blas.match.fast_build = 0;
-	vulkan_globals.blas.match.vertex_count = 9;
-	vulkan_globals.blas.match.index_count = 3;
-	vulkan_globals.blas.match.aabb_count = 0;
-	vulkan_globals.blas.match.instance_count = 1;
-
-	// set where the build lands
-	buildInfo.dstAccelerationStructure = vulkan_globals.blas.accel;
-
-	// build buildRange
-	VkAccelerationStructureBuildRangeInfoKHR* build_range =
-		&(VkAccelerationStructureBuildRangeInfoKHR) {
-		.primitiveCount = 1,
-		.primitiveOffset = 0,
-		.firstVertex = 0,
-		.transformOffset = 0
-	};
-	const VkAccelerationStructureBuildRangeInfoKHR** build_range_infos = &build_range;
-
-	vulkan_globals.fpCmdBuildAccelerationStructuresKHR(vulkan_globals.command_buffer, 1, &buildInfo, build_range_infos);
-
-	//buffer_destroy(&scratch_buffer);
-}
-
 void R_Create_TLAS() {
-
 	uint32_t num_instances = 1;
 
 	VkTransformMatrixKHR transformMatrix;
@@ -947,9 +843,9 @@ void R_Create_TLAS() {
 
 	vulkan_globals.fpGetAccelerationStructureBuildSizesKHR(vulkan_globals.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &num_instances, &sizeInfo);
 
-	if(!accel_matches_top_level(&vulkan_globals.tlas.match, 1, 1)) {
+	if(!accel_matches_top_level(&vulkan_globals.raygen_desc_set_items.tlas.match, 1, 1)) {
 		// Create the buffer for the acceleration structure
-		buffer_create(&vulkan_globals.tlas.mem, sizeInfo.accelerationStructureSize,
+		buffer_create(&vulkan_globals.raygen_desc_set_items.tlas.mem, sizeInfo.accelerationStructureSize,
 			VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
@@ -959,20 +855,20 @@ void R_Create_TLAS() {
 			.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
 			.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
 			.size = sizeInfo.accelerationStructureSize,
-			.buffer = vulkan_globals.tlas.mem.buffer
+			.buffer = vulkan_globals.raygen_desc_set_items.tlas.mem.buffer
 		};
 
 		// Create the acceleration structure
-		VkResult err = vulkan_globals.fpCreateAccelerationStructureKHR(vulkan_globals.device, &createInfo, NULL, &vulkan_globals.tlas.accel);
+		VkResult err = vulkan_globals.fpCreateAccelerationStructureKHR(vulkan_globals.device, &createInfo, NULL, &vulkan_globals.raygen_desc_set_items.tlas.accel);
 		if (err != VK_SUCCESS)
 			Sys_Error("vkCreateAccelerationStructure failed");
 	}
 	
-	vulkan_globals.tlas.match.fast_build = 1;
-	vulkan_globals.tlas.match.index_count = 0;
-	vulkan_globals.tlas.match.vertex_count = 0;
-	vulkan_globals.tlas.match.aabb_count = 0;
-	vulkan_globals.tlas.match.instance_count = 1;
+	vulkan_globals.raygen_desc_set_items.tlas.match.fast_build = 1;
+	vulkan_globals.raygen_desc_set_items.tlas.match.index_count = 0;
+	vulkan_globals.raygen_desc_set_items.tlas.match.vertex_count = 0;
+	vulkan_globals.raygen_desc_set_items.tlas.match.aabb_count = 0;
+	vulkan_globals.raygen_desc_set_items.tlas.match.instance_count = 1;
 
 	// scratch buffer creation
 	BufferResource_t scratch_buffer;
@@ -980,7 +876,7 @@ void R_Create_TLAS() {
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
 	// Update build information
-	buildInfo.dstAccelerationStructure = vulkan_globals.tlas.accel;
+	buildInfo.dstAccelerationStructure = vulkan_globals.raygen_desc_set_items.tlas.accel;
 	buildInfo.scratchData.deviceAddress = scratch_buffer.address;
 
 	//// build buildRange
@@ -1001,39 +897,56 @@ void R_Create_TLAS() {
 
 VkResult R_UpdateRaygenDescriptorSet()
 {
-	if (vulkan_globals.raygen_desc_set != VK_NULL_HANDLE) {
-
-		VkDescriptorImageInfo pt_output_image_info;
-		memset(&pt_output_image_info, 0, sizeof(VkDescriptorImageInfo));
-		// give access to image buffer view from vidsl 
-		pt_output_image_info.imageView = vulkan_globals.color_buffers_view;
-		pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-		//pt_output_image_info.sampler = VK_IMAGE_LAYOUT_GENERAL;
-
-		VkWriteDescriptorSetAccelerationStructureKHR desc_accel_struct;
-		memset(&desc_accel_struct, 0, sizeof(VkWriteDescriptorSetAccelerationStructureKHR));
-		desc_accel_struct.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
-		desc_accel_struct.accelerationStructureCount = 1;
-		desc_accel_struct.pAccelerationStructures = &vulkan_globals.tlas.accel;
-
-		VkWriteDescriptorSet raygen_writes[2];
-		memset(&raygen_writes, 0, 2 * sizeof(VkWriteDescriptorSet));
-		raygen_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		raygen_writes[0].pNext = &desc_accel_struct;
-		raygen_writes[0].dstBinding = 0;
-		raygen_writes[0].descriptorCount = 1;
-		raygen_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-		raygen_writes[0].dstSet = vulkan_globals.raygen_desc_set;
-
-		raygen_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		raygen_writes[1].dstBinding = 1;
-		raygen_writes[1].descriptorCount = 1;
-		raygen_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-		raygen_writes[1].dstSet = vulkan_globals.raygen_desc_set;
-		raygen_writes[1].pImageInfo = &pt_output_image_info;
-
-		vkUpdateDescriptorSets(vulkan_globals.device, 2, raygen_writes, 0, NULL);
+	if (vulkan_globals.raygen_desc_set == VK_NULL_HANDLE) {
+		vulkan_globals.raygen_desc_set = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
 	}
+
+	// image info
+	VkDescriptorImageInfo pt_output_image_info;
+	memset(&pt_output_image_info, 0, sizeof(VkDescriptorImageInfo));
+	// give access to image buffer view from vidsl 
+	pt_output_image_info.imageView = vulkan_globals.raygen_desc_set_items.color_buffers_view;
+	pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	//pt_output_image_info.sampler = VK_IMAGE_LAYOUT_GENERAL;
+
+	// top level acceleration structure info
+	VkWriteDescriptorSetAccelerationStructureKHR desc_accel_struct;
+	memset(&desc_accel_struct, 0, sizeof(VkWriteDescriptorSetAccelerationStructureKHR));
+	desc_accel_struct.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+	desc_accel_struct.accelerationStructureCount = 1;
+	desc_accel_struct.pAccelerationStructures = &vulkan_globals.raygen_desc_set_items.tlas.accel;
+		
+	// uniform buffer (camera matrices)
+	VkDescriptorBufferInfo bufferInfo;
+	memset(&bufferInfo, 0, sizeof(VkDescriptorBufferInfo));
+	bufferInfo.buffer = vulkan_globals.raygen_desc_set_items.uniform_buffer;
+	bufferInfo.offset = 0;
+	bufferInfo.range = VK_WHOLE_SIZE;
+
+	VkWriteDescriptorSet raygen_writes[3];
+	memset(&raygen_writes, 0, sizeof(raygen_writes));
+	raygen_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[0].pNext = &desc_accel_struct;
+	raygen_writes[0].dstBinding = 0;
+	raygen_writes[0].descriptorCount = 1;
+	raygen_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+	raygen_writes[0].dstSet = vulkan_globals.raygen_desc_set;
+
+	raygen_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[1].dstBinding = 1;
+	raygen_writes[1].descriptorCount = 1;
+	raygen_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	raygen_writes[1].dstSet = vulkan_globals.raygen_desc_set;
+	raygen_writes[1].pImageInfo = &pt_output_image_info;
+
+	raygen_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[2].dstBinding = 2;
+	raygen_writes[2].descriptorCount = 1;
+	raygen_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	raygen_writes[2].dstSet = vulkan_globals.raygen_desc_set;
+	raygen_writes[2].pBufferInfo = &bufferInfo;
+
+	vkUpdateDescriptorSets(vulkan_globals.device, 3, raygen_writes, 0, NULL);
 
 	return VK_SUCCESS;
 }
@@ -1063,7 +976,7 @@ void R_RenderScene_RTX(void)
 	static entity_t r_worldentity;	//so we can make sure currententity is valid
 	currententity = &r_worldentity;
 
-	R_SetupMatrix_RTX();
+	R_SetupCameraMatrices_RTX();
 
 	R_DrawViewModel();
 

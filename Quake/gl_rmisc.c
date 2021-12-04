@@ -1174,7 +1174,7 @@ void R_CreateDescriptorSetLayouts()
 	single_texture_layout_binding.binding = 0;
 	single_texture_layout_binding.descriptorCount = 1;
 	single_texture_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	single_texture_layout_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+	single_texture_layout_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 
 	VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info;
 	memset(&descriptor_set_layout_create_info, 0, sizeof(descriptor_set_layout_create_info));
@@ -1262,7 +1262,7 @@ void R_CreateDescriptorSetLayouts()
 	if (err != VK_SUCCESS)
 		Sys_Error("vkCreateDescriptorSetLayout failed");
 
-	VkDescriptorSetLayoutBinding raygen_layout_bindings[2];
+	VkDescriptorSetLayoutBinding raygen_layout_bindings[3];
 	memset(&raygen_layout_bindings, 0, sizeof(raygen_layout_bindings));
 
 	//layout binding acceleration structure
@@ -1275,14 +1275,21 @@ void R_CreateDescriptorSetLayouts()
 	raygen_layout_bindings[1].binding = 1;
 	raygen_layout_bindings[1].descriptorCount = 1;
 	raygen_layout_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	raygen_layout_bindings[1].stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;;
+	raygen_layout_bindings[1].stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 
-	descriptor_set_layout_create_info.bindingCount = 2;
+	//layout binding camera vertices
+	raygen_layout_bindings[2].binding = 2;
+	raygen_layout_bindings[2].descriptorCount = 1;
+	raygen_layout_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	raygen_layout_bindings[2].stageFlags =  VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+	descriptor_set_layout_create_info.bindingCount = 3;
 	descriptor_set_layout_create_info.pBindings = raygen_layout_bindings;
 
 	memset(&vulkan_globals.raygen_set_layout, 0, sizeof(vulkan_globals.raygen_set_layout));
 	vulkan_globals.raygen_set_layout.num_tlas = 1;
 	vulkan_globals.raygen_set_layout.num_storage_images = 1;
+	vulkan_globals.raygen_set_layout.num_storage_vertex = 1;
 
 	err = vkCreateDescriptorSetLayout(vulkan_globals.device, &descriptor_set_layout_create_info, NULL, &vulkan_globals.raygen_set_layout.handle);
 	if (err != VK_SUCCESS)
@@ -1296,7 +1303,7 @@ R_CreateDescriptorPool
 */
 void R_CreateDescriptorPool()
 {
-	VkDescriptorPoolSize pool_sizes[5];
+	VkDescriptorPoolSize pool_sizes[6];
 	pool_sizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	pool_sizes[0].descriptorCount = MAX_GLTEXTURES + 1;
 	pool_sizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
@@ -1307,12 +1314,14 @@ void R_CreateDescriptorPool()
 	pool_sizes[3].descriptorCount = MAX_GLTEXTURES;
 	pool_sizes[4].type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
 	pool_sizes[4].descriptorCount = 1;
+	pool_sizes[5].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	pool_sizes[5].descriptorCount = 1;
 
 	VkDescriptorPoolCreateInfo descriptor_pool_create_info;
 	memset(&descriptor_pool_create_info, 0, sizeof(descriptor_pool_create_info));
 	descriptor_pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	descriptor_pool_create_info.maxSets = MAX_GLTEXTURES + 32;
-	descriptor_pool_create_info.poolSizeCount = 5;
+	descriptor_pool_create_info.poolSizeCount = 6;
 	descriptor_pool_create_info.pPoolSizes = pool_sizes;
 	descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
@@ -1481,18 +1490,18 @@ void R_CreatePipelineLayouts()
 
 	// Ray generation
 
-	VkDescriptorSetLayout raygen_descriptor_set_layouts[1] = {
+	VkDescriptorSetLayout raygen_descriptor_set_layouts[3] = {
 		vulkan_globals.raygen_set_layout.handle, // output image and acceleration structure
+		vulkan_globals.ubo_set_layout.handle,
+		vulkan_globals.single_texture_set_layout.handle
 	};
 
-	// TODO: Currently not used in shader
 	// Used for camera
 	memset(&push_constant_range, 0, sizeof(push_constant_range));
 	push_constant_range.offset = 0;
 	push_constant_range.size = 16 * sizeof(float) * 2; // one matrix for view_inverse and one for proj_inverse
 	push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
 
-	//Ignore push constants for now
 	pipeline_layout_create_info.setLayoutCount = 1;
 	pipeline_layout_create_info.pSetLayouts = raygen_descriptor_set_layouts;
 	pipeline_layout_create_info.pushConstantRangeCount = 1;
