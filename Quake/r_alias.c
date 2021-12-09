@@ -189,7 +189,7 @@ static void R_Create_Alias_BLAS(aliashdr_t* paliashdr, aliasubo_t* ubo, VkBuffer
 	memset(&sizeInfo, 0, sizeof(VkAccelerationStructureBuildSizesInfoKHR));
 	sizeInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
 
-	vulkan_globals.fpGetAccelerationStructureBuildSizesKHR(vulkan_globals.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &max_primitive_count, &sizeInfo);
+	vulkan_globals.fpGetAccelerationStructureBuildSizesKHR(vulkan_globals.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &buildInfo.geometryCount, &sizeInfo);
 
 	if (!accel_matches(&vulkan_globals.blas.match, false, numverts, numindices)) {
 		destroy_accel_struct(&vulkan_globals.blas);
@@ -236,9 +236,9 @@ static void R_Create_Alias_BLAS(aliashdr_t* paliashdr, aliasubo_t* ubo, VkBuffer
 	VkAccelerationStructureBuildRangeInfoKHR* build_range =
 		&(VkAccelerationStructureBuildRangeInfoKHR) {
 		.primitiveCount = max_primitive_count,
-			.primitiveOffset = 0,
-			.firstVertex = 0,
-			.transformOffset = 0
+		.primitiveOffset = 0,
+		.firstVertex = 0,
+		.transformOffset = 0
 	};
 	const VkAccelerationStructureBuildRangeInfoKHR** build_range_infos = &build_range;
 
@@ -273,6 +273,9 @@ static void GL_CreateAliasBLAS(aliashdr_t* paliashdr, lerpdata_t lerpdata, gltex
 
 	// pose 2 refers to the current frame. method returns offset of vertex buffer which contains current vertices. this offset is added to the vertex buffer address
 	VkDeviceSize vertex_offset = GLARB_GetXYZOffset(paliashdr, lerpdata.pose2);
+
+	vulkan_globals.raygen_desc_set_items.vertex_buffer = currententity->model->vertex_buffer;
+	vulkan_globals.raygen_desc_set_items.index_buffer = currententity->model->index_buffer;
 
 	R_Create_Alias_BLAS(paliashdr, ubo, currententity->model->vertex_buffer, vertex_offset, currententity->model->index_buffer);
 	//R_Create_BLAS();

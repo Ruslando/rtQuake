@@ -1262,7 +1262,7 @@ void R_CreateDescriptorSetLayouts()
 	if (err != VK_SUCCESS)
 		Sys_Error("vkCreateDescriptorSetLayout failed");
 
-	VkDescriptorSetLayoutBinding raygen_layout_bindings[3];
+	VkDescriptorSetLayoutBinding raygen_layout_bindings[5];
 	memset(&raygen_layout_bindings, 0, sizeof(raygen_layout_bindings));
 
 	//layout binding acceleration structure
@@ -1281,9 +1281,21 @@ void R_CreateDescriptorSetLayouts()
 	raygen_layout_bindings[2].binding = 2;
 	raygen_layout_bindings[2].descriptorCount = 1;
 	raygen_layout_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	raygen_layout_bindings[2].stageFlags =  VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+	raygen_layout_bindings[2].stageFlags =  VK_SHADER_STAGE_RAYGEN_BIT_KHR;
 
-	descriptor_set_layout_create_info.bindingCount = 3;
+	//layout binding vertex buffer
+	raygen_layout_bindings[3].binding = 3;
+	raygen_layout_bindings[3].descriptorCount = 1;
+	raygen_layout_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_layout_bindings[3].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+	//layout binding index buffer
+	raygen_layout_bindings[4].binding = 4;
+	raygen_layout_bindings[4].descriptorCount = 1;
+	raygen_layout_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_layout_bindings[4].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+	descriptor_set_layout_create_info.bindingCount = 5;
 	descriptor_set_layout_create_info.pBindings = raygen_layout_bindings;
 
 	memset(&vulkan_globals.raygen_set_layout, 0, sizeof(vulkan_globals.raygen_set_layout));
@@ -1303,7 +1315,7 @@ R_CreateDescriptorPool
 */
 void R_CreateDescriptorPool()
 {
-	VkDescriptorPoolSize pool_sizes[6];
+	VkDescriptorPoolSize pool_sizes[7];
 	pool_sizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	pool_sizes[0].descriptorCount = MAX_GLTEXTURES + 1;
 	pool_sizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
@@ -1314,14 +1326,16 @@ void R_CreateDescriptorPool()
 	pool_sizes[3].descriptorCount = MAX_GLTEXTURES;
 	pool_sizes[4].type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
 	pool_sizes[4].descriptorCount = 1;
-	pool_sizes[5].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	pool_sizes[5].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	pool_sizes[5].descriptorCount = 1;
+	pool_sizes[6].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	pool_sizes[6].descriptorCount = 2;
 
 	VkDescriptorPoolCreateInfo descriptor_pool_create_info;
 	memset(&descriptor_pool_create_info, 0, sizeof(descriptor_pool_create_info));
 	descriptor_pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	descriptor_pool_create_info.maxSets = MAX_GLTEXTURES + 32;
-	descriptor_pool_create_info.poolSizeCount = 6;
+	descriptor_pool_create_info.poolSizeCount = 7;
 	descriptor_pool_create_info.pPoolSizes = pool_sizes;
 	descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
@@ -2818,7 +2832,7 @@ void R_CreatePipelines()
 
 	rt_gen_region.deviceAddress = sbtDeviceAdress;
 	rt_miss_region.deviceAddress = sbtDeviceAdress + rt_gen_region.size;
-	rt_hit_region.deviceAddress = sbtDeviceAdress + rt_miss_region.size;
+	rt_hit_region.deviceAddress = sbtDeviceAdress + rt_gen_region.size + rt_miss_region.size;
 
 	// TODO: Remove and find different way to store regions
 	vulkan_globals.rt_gen_region = rt_gen_region;

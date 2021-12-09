@@ -933,7 +933,7 @@ static void GL_InitDevice(void)
 		Con_Printf("Using subgroup operations\n");
 #endif
 
-	const char* device_extensions[8] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+	const char* device_extensions[9] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 	uint32_t numEnabledExtensions = 1;
 	if (vulkan_globals.dedicated_allocation) {
 		device_extensions[numEnabledExtensions++] = VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME;
@@ -953,23 +953,10 @@ static void GL_InitDevice(void)
 	device_extensions[numEnabledExtensions++] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
 	device_extensions[numEnabledExtensions++] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
 
+	device_extensions[numEnabledExtensions++] = VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME;
+
 	const VkBool32 extended_format_support = vulkan_physical_device_features.shaderStorageImageExtendedFormats;
 	//const VkBool32 sampler_anisotropic = vulkan_physical_device_features.samplerAnisotropy;
-
-	VkPhysicalDevice16BitStorageFeatures features_16bit_storage = {
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,
-	};
-	{
-		VkPhysicalDeviceVulkan12Features device_features_1_2 = {
-			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-			.pNext = &features_16bit_storage
-		};
-		VkPhysicalDeviceFeatures2 device_features = {
-			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR,
-			.pNext = &device_features_1_2
-		};
-		vkGetPhysicalDeviceFeatures2(vulkan_physical_device, &device_features);
-	}
 
 	VkPhysicalDeviceAccelerationStructurePropertiesKHR accel_struct_properties = {
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR,
@@ -991,9 +978,17 @@ static void GL_InitDevice(void)
 	vulkan_globals.acceleration_structure_properties = accel_struct_properties;
 	vulkan_globals.raytracing_pipeline_properties = ray_pipeline_properties;
 
+	VkPhysicalDevice16BitStorageFeatures bit_16_storage_features = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,
+		.pNext = VK_NULL_HANDLE,
+		.storageBuffer16BitAccess = VK_TRUE,
+		.uniformAndStorageBuffer16BitAccess = VK_TRUE,
+		.storageInputOutput16 = VK_TRUE,
+	};
+
 	VkPhysicalDeviceAccelerationStructureFeaturesKHR physical_device_as_features = {
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
-		.pNext = VK_NULL_HANDLE,
+		.pNext = &bit_16_storage_features,
 		.accelerationStructure = VK_TRUE,
 	};
 
@@ -1018,6 +1013,7 @@ static void GL_InitDevice(void)
 		.runtimeDescriptorArray = VK_TRUE,
 		.samplerFilterMinmax = VK_TRUE,
 		.bufferDeviceAddress = VK_TRUE,
+		.uniformAndStorageBuffer8BitAccess = VK_TRUE,
 		//.bufferDeviceAddressMultiDevice = qvk.device_count > 1 ? VK_TRUE : VK_FALSE,
 		.bufferDeviceAddressMultiDevice = VK_FALSE	// currently dont support SLI / Multi-GPU
 	};
@@ -1055,6 +1051,8 @@ static void GL_InitDevice(void)
 	device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR;
 	device_features.pNext = &device_features_vk12;
 	device_features.features = features;
+
+	vkGetPhysicalDeviceFeatures2(vulkan_physical_device, &device_features);
 
 	vulkan_globals.non_solid_fill = (vulkan_physical_device_features.fillModeNonSolid == VK_TRUE) ? true : false;
 

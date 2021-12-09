@@ -143,10 +143,10 @@ extern int r_trace_line_cache_counter;
 
 // Ray generation shader structs
 
-typedef struct camera_pushconstants_s {
+typedef struct raygen_uniform_s {
 	float view_inverse[16];
 	float proj_inverse[16];
-} camera_pushconstants_t;
+} raygen_uniform_t;
 
 typedef struct BufferResource_s {
 	VkBuffer buffer;
@@ -175,6 +175,8 @@ typedef struct raygen_desc_set_items_s {
 	VkImageView color_buffers_view;
 	accel_struct_t tlas;
 	VkBuffer uniform_buffer;
+	VkBuffer vertex_buffer;
+	VkBuffer index_buffer;
 }raygen_desc_set_items_t;
 
 typedef struct vulkan_pipeline_layout_s {

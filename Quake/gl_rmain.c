@@ -307,18 +307,20 @@ void R_SetupCameraMatrices_RTX()
 	TranslationMatrix(translation_matrix, -r_refdef.vieworg[0], -r_refdef.vieworg[1], -r_refdef.vieworg[2]);
 	MatrixMultiply(vulkan_globals.view_matrix, translation_matrix);
 
-	static camera_pushconstants_t inverse_matrices;
+	static raygen_uniform_t inverse_matrices;
 
 	InverseMatrix(vulkan_globals.view_matrix, inverse_matrices.view_inverse);
 	InverseMatrix(vulkan_globals.projection_matrix, inverse_matrices.proj_inverse);
 
 	R_BindPipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline);
 
+
+	//TODO: Create buffer somewhere else
 	BufferResource_t uniform_buffer_resource;
-	buffer_create(&uniform_buffer_resource, sizeof(camera_pushconstants_t), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+	buffer_create(&uniform_buffer_resource, sizeof(raygen_uniform_t), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
 	void* data = buffer_map(&uniform_buffer_resource);
-	memcpy(data, &inverse_matrices, sizeof(camera_pushconstants_t));
+	memcpy(data, &inverse_matrices, sizeof(raygen_uniform_t));
 	buffer_unmap(&uniform_buffer_resource);
 
 	vulkan_globals.raygen_desc_set_items.uniform_buffer = uniform_buffer_resource.buffer;
@@ -882,7 +884,7 @@ void R_Create_TLAS() {
 	//// build buildRange
 	VkAccelerationStructureBuildRangeInfoKHR* build_range =
 		&(VkAccelerationStructureBuildRangeInfoKHR) {
-		.primitiveCount = 1,
+		.primitiveCount = num_instances,
 		.primitiveOffset = 0,
 		.firstVertex = 0,
 		.transformOffset = 0
@@ -923,7 +925,21 @@ VkResult R_UpdateRaygenDescriptorSet()
 	bufferInfo.offset = 0;
 	bufferInfo.range = VK_WHOLE_SIZE;
 
-	VkWriteDescriptorSet raygen_writes[3];
+	// vertex buffer
+	VkDescriptorBufferInfo vertexBufferInfo;
+	memset(&vertexBufferInfo, 0, sizeof(VkDescriptorBufferInfo));
+	vertexBufferInfo.buffer = vulkan_globals.raygen_desc_set_items.vertex_buffer;
+	vertexBufferInfo.offset = 0;
+	vertexBufferInfo.range = VK_WHOLE_SIZE;
+
+	// index buffer
+	VkDescriptorBufferInfo indexBufferInfo;
+	memset(&indexBufferInfo, 0, sizeof(VkDescriptorBufferInfo));
+	indexBufferInfo.buffer = vulkan_globals.raygen_desc_set_items.index_buffer;
+	indexBufferInfo.offset = 0;
+	indexBufferInfo.range = VK_WHOLE_SIZE;
+
+	VkWriteDescriptorSet raygen_writes[5];
 	memset(&raygen_writes, 0, sizeof(raygen_writes));
 	raygen_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	raygen_writes[0].pNext = &desc_accel_struct;
@@ -946,7 +962,21 @@ VkResult R_UpdateRaygenDescriptorSet()
 	raygen_writes[2].dstSet = vulkan_globals.raygen_desc_set;
 	raygen_writes[2].pBufferInfo = &bufferInfo;
 
-	vkUpdateDescriptorSets(vulkan_globals.device, 3, raygen_writes, 0, NULL);
+	raygen_writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[3].dstBinding = 3;
+	raygen_writes[3].descriptorCount = 1;
+	raygen_writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_writes[3].dstSet = vulkan_globals.raygen_desc_set;
+	raygen_writes[3].pBufferInfo = &vertexBufferInfo;
+
+	raygen_writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[4].dstBinding = 4;
+	raygen_writes[4].descriptorCount = 1;
+	raygen_writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_writes[4].dstSet = vulkan_globals.raygen_desc_set;
+	raygen_writes[4].pBufferInfo = &indexBufferInfo;
+
+	vkUpdateDescriptorSets(vulkan_globals.device, 5, raygen_writes, 0, NULL);
 
 	return VK_SUCCESS;
 }
