@@ -1262,7 +1262,7 @@ void R_CreateDescriptorSetLayouts()
 	if (err != VK_SUCCESS)
 		Sys_Error("vkCreateDescriptorSetLayout failed");
 
-	VkDescriptorSetLayoutBinding raygen_layout_bindings[5];
+	VkDescriptorSetLayoutBinding raygen_layout_bindings[8];
 	memset(&raygen_layout_bindings, 0, sizeof(raygen_layout_bindings));
 
 	//layout binding acceleration structure
@@ -1275,9 +1275,9 @@ void R_CreateDescriptorSetLayouts()
 	raygen_layout_bindings[1].binding = 1;
 	raygen_layout_bindings[1].descriptorCount = 1;
 	raygen_layout_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	raygen_layout_bindings[1].stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+	raygen_layout_bindings[1].stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
 
-	//layout binding camera vertices
+	//layout binding uniform buffer
 	raygen_layout_bindings[2].binding = 2;
 	raygen_layout_bindings[2].descriptorCount = 1;
 	raygen_layout_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -1295,7 +1295,25 @@ void R_CreateDescriptorSetLayouts()
 	raygen_layout_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	raygen_layout_bindings[4].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 
-	descriptor_set_layout_create_info.bindingCount = 5;
+	// layout binding texture
+	raygen_layout_bindings[5].binding = 5;
+	raygen_layout_bindings[5].descriptorCount = 1;
+	raygen_layout_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	raygen_layout_bindings[5].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+	// layout binding texture (fullbright)
+	raygen_layout_bindings[6].binding = 6;
+	raygen_layout_bindings[6].descriptorCount = 1;
+	raygen_layout_bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	raygen_layout_bindings[6].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+	//layout binding alias uniform buffer
+	raygen_layout_bindings[7].binding = 7;
+	raygen_layout_bindings[7].descriptorCount = 1;
+	raygen_layout_bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	raygen_layout_bindings[7].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+	descriptor_set_layout_create_info.bindingCount = 8;
 	descriptor_set_layout_create_info.pBindings = raygen_layout_bindings;
 
 	memset(&vulkan_globals.raygen_set_layout, 0, sizeof(vulkan_globals.raygen_set_layout));
@@ -1317,7 +1335,7 @@ void R_CreateDescriptorPool()
 {
 	VkDescriptorPoolSize pool_sizes[7];
 	pool_sizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	pool_sizes[0].descriptorCount = MAX_GLTEXTURES + 1;
+	pool_sizes[0].descriptorCount = MAX_GLTEXTURES + 3;
 	pool_sizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 	pool_sizes[1].descriptorCount = 16;
 	pool_sizes[2].type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
@@ -1327,7 +1345,7 @@ void R_CreateDescriptorPool()
 	pool_sizes[4].type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
 	pool_sizes[4].descriptorCount = 1;
 	pool_sizes[5].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	pool_sizes[5].descriptorCount = 1;
+	pool_sizes[5].descriptorCount = 2;
 	pool_sizes[6].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	pool_sizes[6].descriptorCount = 2;
 

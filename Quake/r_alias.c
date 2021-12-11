@@ -75,6 +75,11 @@ typedef struct {
 	unsigned int flags;
 } aliasubo_t;
 
+typedef struct {
+	float model_matrix[16];
+	unsigned int st_offset;
+} raygen_aliasubo_t;
+
 /*
 =============
 GLARB_GetXYZOffset
@@ -90,7 +95,7 @@ static VkDeviceSize GLARB_GetXYZOffset (aliashdr_t *hdr, int pose)
 }
 
 
-static void R_Create_Alias_BLAS(aliashdr_t* paliashdr, aliasubo_t* ubo, VkBuffer vertex_buffer, VkDeviceSize vertex_offset, VkBuffer index_buffer) {
+static void R_Create_Alias_BLAS(aliashdr_t* paliashdr, float transform_mat[16], VkBuffer vertex_buffer, VkDeviceSize vertex_offset, VkBuffer index_buffer) {
 
 	VkBufferDeviceAddressInfo vertexBufferDeviceAddressInfo;
 	memset(&vertexBufferDeviceAddressInfo, 0, sizeof(VkBufferDeviceAddressInfo));
@@ -119,20 +124,20 @@ static void R_Create_Alias_BLAS(aliashdr_t* paliashdr, aliasubo_t* ubo, VkBuffer
 
 	VkTransformMatrixKHR transform;
 	memset(&transform, 0, sizeof(VkTransformMatrixKHR));
-	transform.matrix[0][0] = ubo->model_matrix[0];
-	transform.matrix[0][1] = ubo->model_matrix[4];
-	transform.matrix[0][2] = ubo->model_matrix[8];
-	transform.matrix[0][3] = ubo->model_matrix[12];
+	transform.matrix[0][0] = transform_mat[0];
+	transform.matrix[0][1] = transform_mat[4];
+	transform.matrix[0][2] = transform_mat[8];
+	transform.matrix[0][3] = transform_mat[12];
 
-	transform.matrix[1][0] = ubo->model_matrix[1];
-	transform.matrix[1][1] = ubo->model_matrix[5];
-	transform.matrix[1][2] = ubo->model_matrix[9];
-	transform.matrix[1][3] = ubo->model_matrix[13];
+	transform.matrix[1][0] = transform_mat[1];
+	transform.matrix[1][1] = transform_mat[5];
+	transform.matrix[1][2] = transform_mat[9];
+	transform.matrix[1][3] = transform_mat[13];
 
-	transform.matrix[2][0] = ubo->model_matrix[2];
-	transform.matrix[2][1] = ubo->model_matrix[6];
-	transform.matrix[2][2] = ubo->model_matrix[10];
-	transform.matrix[2][3] = ubo->model_matrix[14];
+	transform.matrix[2][0] = transform_mat[2];
+	transform.matrix[2][1] = transform_mat[6];
+	transform.matrix[2][2] = transform_mat[10];
+	transform.matrix[2][3] = transform_mat[14];
 
 	BufferResource_t transform_buffer_instance;
 	buffer_create(&transform_buffer_instance, sizeof(VkTransformMatrixKHR), VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
@@ -256,28 +261,27 @@ static void GL_CreateAliasBLAS(aliashdr_t* paliashdr, lerpdata_t lerpdata, gltex
 	else // poses the same means either 1. the entity has paused its animation, or 2. r_lerpmodels is disabled
 		blend = 0;
 
-
 	VkBuffer uniform_buffer;
 	uint32_t uniform_offset;
 	VkDescriptorSet ubo_set;
-	aliasubo_t* ubo = (aliasubo_t*)R_UniformAllocate(sizeof(aliasubo_t), &uniform_buffer, &uniform_offset, &ubo_set);
+	raygen_aliasubo_t* ubo = (raygen_aliasubo_t*)R_UniformAllocate(sizeof(raygen_aliasubo_t), &uniform_buffer, &uniform_offset, &ubo_set);
 
+	unsigned int vbostoffset = (unsigned)currententity->model->vbostofs;
 	memcpy(ubo->model_matrix, model_matrix, 16 * sizeof(float));
-	memcpy(ubo->shade_vector, shadevector, 3 * sizeof(float));
-	ubo->blend_factor = blend;
-	memcpy(ubo->light_color, lightcolor, 3 * sizeof(float));
-	ubo->flags = (fb != NULL) ? 0x1 : 0x0;
-	if (r_fullbright_cheatsafe || r_lightmap_cheatsafe)
-		ubo->flags |= 0x2;
-	ubo->entalpha = entity_alpha;
+	ubo->st_offset = vbostoffset;
 
 	// pose 2 refers to the current frame. method returns offset of vertex buffer which contains current vertices. this offset is added to the vertex buffer address
 	VkDeviceSize vertex_offset = GLARB_GetXYZOffset(paliashdr, lerpdata.pose2);
 
 	vulkan_globals.raygen_desc_set_items.vertex_buffer = currententity->model->vertex_buffer;
 	vulkan_globals.raygen_desc_set_items.index_buffer = currententity->model->index_buffer;
+	vulkan_globals.raygen_desc_set_items.alias_texture_view = tx->image_view;
+	if (fb != NULL) {
+		vulkan_globals.raygen_desc_set_items.alias_texture_fullbright_view = fb->image_view;
+	}
+	vulkan_globals.raygen_desc_set_items.alias_uniform_buffer = uniform_buffer;
 
-	R_Create_Alias_BLAS(paliashdr, ubo, currententity->model->vertex_buffer, vertex_offset, currententity->model->index_buffer);
+	R_Create_Alias_BLAS(paliashdr, ubo->model_matrix, currententity->model->vertex_buffer, vertex_offset, currententity->model->index_buffer);
 	//R_Create_BLAS();
 	rs_aliaspasses += paliashdr->numtris;
 }

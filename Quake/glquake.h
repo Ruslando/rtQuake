@@ -175,8 +175,11 @@ typedef struct raygen_desc_set_items_s {
 	VkImageView color_buffers_view;
 	accel_struct_t tlas;
 	VkBuffer uniform_buffer;
+	VkBuffer alias_uniform_buffer;
 	VkBuffer vertex_buffer;
 	VkBuffer index_buffer;
+	VkImageView alias_texture_view;
+	VkImageView alias_texture_fullbright_view;
 }raygen_desc_set_items_t;
 
 typedef struct vulkan_pipeline_layout_s {

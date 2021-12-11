@@ -8,43 +8,66 @@ hitAttributeEXT vec2 hitCoordinate;
 
 layout(location = 0) rayPayloadInEXT vec3 hitPayload;
 
-struct Vertex {
-	u8vec4 position;
-	i8vec4 normal;
-};
-
-struct Index {
-	uint16_t index;
-};
-
-layout(set = 2, binding = 0) buffer VertexBuffer {
-	Vertex vertex[];
+layout(std430, set = 0, binding = 3) readonly buffer VertexBuffer {
+	int8_t vertex[];
 } vertexBuffer;
 
-layout(std430, set = 3, binding = 0) readonly buffer IndexBuffer {
-	Index index[];
+layout(std430, set = 0, binding = 3) readonly buffer TextureBuffer {
+	vec2 coordinates[];
+} stcoordinates;
+
+layout(std430, set = 0, binding = 4) readonly buffer IndexBuffer {
+	uint16_t index[];
 } indexBuffer;
+
+layout(set = 0, binding = 5) uniform sampler2D diffuse_tex;
+layout(set = 0, binding = 6) uniform sampler2D fullbright_tex;
+
+layout(set = 0, binding = 7) uniform UBO
+{
+	mat4 model_matrix;
+	uint st_offset;
+}ubo;
+
+
+// Methods
+
+vec3 get_vertex_pos(uint index)
+{
+	return u8vec3(vertexBuffer.vertex[index * 8], vertexBuffer.vertex[index * 8 + 1], vertexBuffer.vertex[index * 8 + 2]);
+}
+
+vec3 get_vertex_normal(uint index)
+{
+	return i8vec3(vertexBuffer.vertex[index * 8 + 4], vertexBuffer.vertex[index * 8 + 4 +  1], vertexBuffer.vertex[index * 8 + 4 + 2]);
+}
+
+vec2 get_st_coordinates(uint index)
+{
+	return stcoordinates.coordinates[index + (ubo.st_offset / 8)];
+}
+
 
 void main()
 {	
-	const uvec3 indices = uvec3(indexBuffer.index[gl_PrimitiveID * 3].index, indexBuffer.index[gl_PrimitiveID * 3 + 1].index, indexBuffer.index[gl_PrimitiveID * 3 + 2].index);
+	const uvec3 indices = uvec3(indexBuffer.index[gl_PrimitiveID * 3], indexBuffer.index[gl_PrimitiveID * 3 + 1], indexBuffer.index[gl_PrimitiveID * 3 + 2]);
 	const vec3 barycentrics = vec3(1.0 - hitCoordinate.x - hitCoordinate.y, hitCoordinate.x, hitCoordinate.y);
 	
-	Vertex vertexA = vertexBuffer.vertex[indices.x];
-	Vertex vertexB = vertexBuffer.vertex[indices.y];
-	Vertex vertexC = vertexBuffer.vertex[indices.z];
+	vec3 vertexPosA = get_vertex_pos(indices.x);
+	vec3 vertexPosB = get_vertex_pos(indices.y);
+	vec3 vertexPosC = get_vertex_pos(indices.z);
 	
-	vec3 vertexPosA = vec3(u32vec4(vertexA.position));
-	vec3 vertexPosB = vec3(u32vec4(vertexB.position));
-	vec3 vertexPosC = vec3(u32vec4(vertexC.position));
+	vec2 vertex_st = get_st_coordinates(indices.x) * barycentrics.x
+	+ get_st_coordinates(indices.y) * barycentrics.y
+	+ get_st_coordinates(indices.z) * barycentrics.z;
 	
-	vec3 vertexNormA = vec3(i32vec4(vertexA.normal));
-	vec3 vertexNormB = vec3(i32vec4(vertexB.normal));
-	vec3 vertexNormC = vec3(i32vec4(vertexC.normal));
+	vec4 result = texture(diffuse_tex, vertex_st.xy);
+	result += texture(fullbright_tex, vertex_st.xy);
 	
 	vec3 geometricNormal = normalize(cross(vertexPosB - vertexPosA, vertexPosC - vertexPosA));
-	const vec3 nrm = normalize(vertexNormA * barycentrics.x + vertexNormB * barycentrics.y + vertexNormC * barycentrics.z);
+	
+	debugPrintfEXT("a: %v4f", ubo.model_matrix[0]);
 	
 	float NdotL = dot(geometricNormal, gl_WorldRayDirectionEXT);
-	hitPayload = vec3(0.0, 0.0, 1.0) * NdotL;
+	hitPayload = result.xyz;
 }
