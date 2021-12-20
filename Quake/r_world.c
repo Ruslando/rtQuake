@@ -343,6 +343,26 @@ static unsigned int R_NumTriangleIndicesForSurf (msurface_t *s)
 
 /*
 ================
+R_TriangleAndTextureIndicesForSurf
+
+Writes out the triangle indices needed to draw s as a triangle list.
+The number of indices it will write is given by R_NumTriangleIndicesForSurf.
+================
+*/
+static void R_TriangleAndTextureIndicesForSurf(msurface_t* s, int* indices, int num_vbo_indices)
+{
+	int i;
+	for (i = 2; i < s->numedges; i++)
+	{
+		indices[num_vbo_indices++] = s->vbo_firstvert;
+		indices[num_vbo_indices++] = s->vbo_firstvert + i - 1;
+		indices[num_vbo_indices++] = s->vbo_firstvert + i;
+
+	}
+}
+
+/*
+================
 R_TriangleIndicesForSurf
 
 Writes out the triangle indices needed to draw s as a triangle list.
@@ -538,6 +558,270 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 	}
 }
 
+void R_Create_Brush_BLAS(VkBuffer vertex_buffer, uint32_t num_vertices, uint32_t num_triangles, uint32_t stride, VkBuffer index_buffer, uint32_t num_indices) {
+	VkBufferDeviceAddressInfo vertexBufferDeviceAddressInfo;
+	memset(&vertexBufferDeviceAddressInfo, 0, sizeof(VkBufferDeviceAddressInfo));
+	vertexBufferDeviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	vertexBufferDeviceAddressInfo.buffer = vertex_buffer;
+
+	VkDeviceAddress vertexBufferAddress = vkGetBufferDeviceAddress(vulkan_globals.device, &vertexBufferDeviceAddressInfo);
+
+	VkDeviceOrHostAddressConstKHR vertexDeviceOrHostAddressConst;
+	memset(&vertexDeviceOrHostAddressConst, 0, sizeof(VkDeviceOrHostAddressConstKHR));
+	vertexDeviceOrHostAddressConst.deviceAddress = vertexBufferAddress;
+
+
+	VkBufferDeviceAddressInfo indexBufferDeviceAddressInfo;
+	memset(&indexBufferDeviceAddressInfo, 0, sizeof(VkBufferDeviceAddressInfo));
+	indexBufferDeviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	indexBufferDeviceAddressInfo.buffer = index_buffer;
+
+	VkDeviceAddress indexBufferAddress = vkGetBufferDeviceAddress(vulkan_globals.device, &indexBufferDeviceAddressInfo);
+
+	VkDeviceOrHostAddressConstKHR indexDeviceOrHostAddressConst;
+	memset(&indexDeviceOrHostAddressConst, 0, sizeof(VkDeviceOrHostAddressConstKHR));
+	indexDeviceOrHostAddressConst.deviceAddress = indexBufferAddress;
+
+	VkDeviceOrHostAddressConstKHR transform_device_or_host_address_const;
+	memset(&transform_device_or_host_address_const, 0, sizeof(VkDeviceOrHostAddressConstKHR));
+
+	VkAccelerationStructureGeometryTrianglesDataKHR geometry_triangles_data;
+	memset(&geometry_triangles_data, 0, sizeof(VkAccelerationStructureGeometryTrianglesDataKHR));
+	geometry_triangles_data.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+	geometry_triangles_data.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+	geometry_triangles_data.vertexData = vertexDeviceOrHostAddressConst;
+	geometry_triangles_data.vertexStride = stride;
+	geometry_triangles_data.maxVertex = num_vertices - 1;
+	geometry_triangles_data.indexType = VK_INDEX_TYPE_UINT32;
+	geometry_triangles_data.indexData = indexDeviceOrHostAddressConst;
+	geometry_triangles_data.transformData = transform_device_or_host_address_const;
+
+	// setting up the geometry
+	VkAccelerationStructureGeometryKHR geometry;
+	memset(&geometry, 0, sizeof(VkAccelerationStructureGeometryKHR));
+	geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+	geometry.geometry.triangles = geometry_triangles_data;
+	geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+	geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+
+	VkAccelerationStructureBuildGeometryInfoKHR buildInfo;
+	memset(&buildInfo, 0, sizeof(VkAccelerationStructureBuildGeometryInfoKHR));
+	// Prepare build info now, acceleration is filled later
+	buildInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+	buildInfo.pNext = VK_NULL_HANDLE;
+	buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+	buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
+	buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+	buildInfo.srcAccelerationStructure = VK_NULL_HANDLE;
+	buildInfo.dstAccelerationStructure = VK_NULL_HANDLE;
+	buildInfo.geometryCount = 1;
+	buildInfo.pGeometries = &geometry;
+	buildInfo.ppGeometries = VK_NULL_HANDLE;
+
+	VkAccelerationStructureBuildSizesInfoKHR sizeInfo;
+	memset(&sizeInfo, 0, sizeof(VkAccelerationStructureBuildSizesInfoKHR));
+	sizeInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+
+	vulkan_globals.fpGetAccelerationStructureBuildSizesKHR(vulkan_globals.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &num_triangles, &sizeInfo);
+
+	if (!accel_matches(&vulkan_globals.blas.match, false, num_vertices, num_indices)) {
+		destroy_accel_struct(&vulkan_globals.blas);
+
+		VkAccelerationStructureCreateInfoKHR createInfo;
+		memset(&createInfo, 0, sizeof(VkAccelerationStructureCreateInfoKHR));
+		createInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+		createInfo.size = sizeInfo.accelerationStructureSize;
+		createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+
+		// Create buffer for acceleration
+		buffer_create(&vulkan_globals.blas.mem, sizeInfo.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		createInfo.buffer = vulkan_globals.blas.mem.buffer;
+
+		//creates acceleration structure
+		VkResult err = vulkan_globals.fpCreateAccelerationStructureKHR(vulkan_globals.device, &createInfo, NULL, &vulkan_globals.blas.accel);
+		if (err != VK_SUCCESS)
+			Sys_Error("vkCreateAccelerationStructure failed");
+	};
+
+	// Scratch buffer
+	BufferResource_t scratch_buffer;
+	buffer_create(&scratch_buffer, sizeInfo.buildScratchSize,
+		VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	VkDeviceOrHostAddressKHR scratchDeviceOrHostAddress;
+	memset(&scratchDeviceOrHostAddress, 0, sizeof(VkDeviceOrHostAddressKHR));
+	scratchDeviceOrHostAddress.deviceAddress = scratch_buffer.address;
+
+	buildInfo.scratchData = scratchDeviceOrHostAddress;
+
+	vulkan_globals.blas.match.fast_build = 0;
+	vulkan_globals.blas.match.vertex_count = num_vertices;
+	vulkan_globals.blas.match.index_count = num_indices;
+	vulkan_globals.blas.match.aabb_count = 0;
+	vulkan_globals.blas.match.instance_count = 1;
+
+	// set where the build lands
+	buildInfo.dstAccelerationStructure = vulkan_globals.blas.accel;
+
+	// build buildRange
+	VkAccelerationStructureBuildRangeInfoKHR* build_range =
+		&(VkAccelerationStructureBuildRangeInfoKHR) {
+		.primitiveCount = num_triangles,
+			.primitiveOffset = 0,
+			.firstVertex = 0,
+			.transformOffset = 0
+	};
+	const VkAccelerationStructureBuildRangeInfoKHR** build_range_infos = &build_range;
+
+	vulkan_globals.fpCmdBuildAccelerationStructuresKHR(vulkan_globals.command_buffer, 1, &buildInfo, build_range_infos);
+}
+
+/*
+================
+R_DrawTextureChains_Multitexture_RTX
+================
+*/
+void R_DrawTextureChains_Multitexture_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, const float alpha)
+{
+	int			i;
+	msurface_t* s;
+	texture_t* t;
+	qboolean	bound;
+	qboolean	fullbright_enabled = false;
+	qboolean	alpha_test = false;
+	//qboolean	alpha_blend = alpha < 1.0f;
+	//qboolean	use_zbias = (gl_zfix.value && model != cl.worldmodel);
+	gltexture_t* fullbright = NULL;
+
+	size_t textures_pointer_size_count = 1;
+	if (model->numvertexes != 7757) {
+		textures_pointer_size_count *= 1;
+	}
+
+	model_material_t* textures = (model_material_t*) malloc(sizeof(model_material_t) * textures_pointer_size_count);
+
+	size_t texture_indices_size = 8192 * sizeof(int); // initial dynamic size in bytes times size of int (4 bytes)
+	
+	int* indices = (int*)malloc(texture_indices_size);
+	int* texture_indices = (int*)malloc(texture_indices_size);
+
+
+	
+	int current_texture_count = 0;
+	int num_vbo_indices_old = 0;
+	for (i = 0; i < model->numtextures; ++i)
+	{
+
+		t = model->textures[i];
+
+		if (!t || !t->texturechains[chain] || t->texturechains[chain]->flags & (SURF_DRAWTILED | SURF_NOTEXTURE))
+			continue;
+
+		if (gl_fullbrights.value && (fullbright = R_TextureAnimation(t, ent != NULL ? ent->frame : 0)->fullbright) && !r_lightmap_cheatsafe)
+		{
+			fullbright_enabled = true;
+		}
+		else
+			fullbright_enabled = false;
+
+		//R_ClearBatch();
+
+		bound = false;
+		for (s = t->texturechains[chain]; s; s = s->texturechain)
+		{
+			if (!bound) //only bind once we are sure we need this texture
+			{
+				// reallocate memory if indices count exceeds initial size of 512
+				if (current_texture_count + 1 > textures_pointer_size_count) {
+					if (textures != NULL) {
+						textures_pointer_size_count *= 2;
+						model_material_t* tmp_textures = (model_material_t*)realloc(textures, textures_pointer_size_count * sizeof(model_material_t));
+
+						if (tmp_textures != NULL) {
+							textures = tmp_textures;
+						}
+					}
+				}
+
+				texture_t* texture = R_TextureAnimation(t, ent != NULL ? ent->frame : 0);
+				gltexture_t* gl_texture = texture->gltexture;
+				if (!r_lightmap_cheatsafe)
+					textures[current_texture_count].tx_imageview = gl_texture->image_view;
+					current_texture_count++;
+
+				alpha_test = (t->texturechains[chain]->flags & SURF_DRAWFENCE) != 0;
+				bound = true;
+			}
+
+			// Batch surface
+			{
+				int num_surf_indices;
+
+				num_surf_indices = R_NumTriangleIndicesForSurf(s);
+
+				// reallocate memory if indices count exceeds initial size of 512
+				if ((int)num_vbo_indices + num_surf_indices > texture_indices_size / 4) {
+					if (indices != NULL && texture_indices != NULL) {
+						texture_indices_size *= 2;
+						int* tmp_indices = (int*) realloc(indices, texture_indices_size);
+						int* tmp_texture_indices = (int*) realloc(texture_indices, texture_indices_size);
+
+						if (tmp_indices != NULL && tmp_texture_indices != NULL) {
+							indices = tmp_indices;
+							texture_indices = tmp_texture_indices;
+						}
+					}
+				}
+
+				//R_TriangleIndicesForSurf(s, &vbo_indices[num_vbo_indices]);
+				R_TriangleAndTextureIndicesForSurf(s, indices, num_vbo_indices);
+				num_vbo_indices += num_surf_indices;
+			}
+
+			rs_brushpasses++;
+		}
+
+		// may cause errors if for some reason a model has been build without a texture added (bound) to the texture list 
+		for (int j = num_vbo_indices_old; j < (int)num_vbo_indices; j++) {
+			texture_indices[j] = current_texture_count - 1;
+		}
+
+		num_vbo_indices_old = (int)num_vbo_indices;
+	}
+
+	// Flush batch
+	VkBuffer index_buffer;
+	VkDeviceSize buffer_offset;
+	byte* indices_data = R_IndexAllocate(texture_indices_size, &index_buffer, &buffer_offset);
+	memcpy(indices_data, indices, texture_indices_size);
+
+	// Vertex Allocate (texture index)
+	// TODO: Change to index, cause its what it is
+	VkBuffer texture_index_buffer;
+	VkDeviceSize texture_index_offset;
+	byte* ubo = R_VertexAllocate(texture_indices_size, &texture_index_buffer, &texture_index_offset);
+	memcpy(ubo, texture_indices, texture_indices_size);
+
+	//TODO: Remove/replace hardcoded stride value
+	R_Create_Brush_BLAS(bmodel_vertex_buffer, model->numvertexes, num_vbo_indices / 3, 28, index_buffer, num_vbo_indices);
+
+	vulkan_globals.raygen_desc_set_items.model_materials = textures;
+	vulkan_globals.raygen_desc_set_items.vertex_buffer = bmodel_vertex_buffer;
+	vulkan_globals.raygen_desc_set_items.index_buffer = index_buffer;
+	vulkan_globals.raygen_desc_set_items.texture_test_buffer = texture_index_buffer;
+	vulkan_globals.raygen_desc_set_items.texture_index_count = current_texture_count;
+
+	//free(textures);
+	free(texture_indices);
+	free(indices);
+
+	//buffer_destroy(&texture_index_resource);
+
+	num_vbo_indices = 0;
+}
+
 /*
 ================
 R_DrawTextureChains_Multitexture
@@ -632,8 +916,9 @@ void R_DrawTextureChains (qmodel_t *model, entity_t *ent, texchain_t chain)
 	else
 		entalpha = 1;
 
-	R_UploadLightmaps ();
-	R_DrawTextureChains_Multitexture (model, ent, chain, entalpha);
+	//R_UploadLightmaps ();
+	//R_DrawTextureChains_Multitexture (model, ent, chain, entalpha);
+	R_DrawTextureChains_Multitexture_RTX(model, ent, chain, entalpha);
 }
 
 /*

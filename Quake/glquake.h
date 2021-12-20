@@ -171,13 +171,24 @@ typedef struct accel_struct_s {
 	qboolean present;
 } accel_struct_t;
 
+typedef struct raygen_uniform_second_s {
+	int* texture_index;
+}raygen_uniform_second_t;
+
+typedef struct model_material_s {
+	VkImageView tx_imageview;
+} model_material_t;
+
 typedef struct raygen_desc_set_items_s {
 	VkImageView color_buffers_view;
 	accel_struct_t tlas;
 	VkBuffer uniform_buffer;
 	VkBuffer alias_uniform_buffer;
+	int texture_index_count;
+	VkBuffer texture_test_buffer;
 	VkBuffer vertex_buffer;
 	VkBuffer index_buffer;
+	model_material_t* model_materials;
 	VkImageView alias_texture_view;
 	VkImageView alias_texture_fullbright_view;
 }raygen_desc_set_items_t;

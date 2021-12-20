@@ -899,9 +899,10 @@ void R_Create_TLAS() {
 
 VkResult R_UpdateRaygenDescriptorSet()
 {
-	if (vulkan_globals.raygen_desc_set == VK_NULL_HANDLE) {
-		vulkan_globals.raygen_desc_set = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
-	}
+	//Free descriptor set to remove every instance of potentially old image views that are invalid or has been destroyed
+	// TODO: Not a good solution. Load all textures inside one buffer and upload them
+	vkFreeDescriptorSets(vulkan_globals.device, vulkan_globals.descriptor_pool, 1, &vulkan_globals.raygen_desc_set);
+	vulkan_globals.raygen_desc_set = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
 
 	// output image info
 	VkDescriptorImageInfo pt_output_image_info;
@@ -939,6 +940,18 @@ VkResult R_UpdateRaygenDescriptorSet()
 	indexBufferInfo.offset = 0;
 	indexBufferInfo.range = VK_WHOLE_SIZE;
 
+	size_t model_materials_count = vulkan_globals.raygen_desc_set_items.texture_index_count;
+	VkDescriptorImageInfo* texture_image_infos = (VkDescriptorImageInfo*)malloc(sizeof(VkDescriptorImageInfo) * model_materials_count);
+	for (int i = 0; i < model_materials_count; i++) {
+		texture_image_infos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		texture_image_infos[i].imageView = vulkan_globals.raygen_desc_set_items.model_materials[i].tx_imageview;
+		texture_image_infos[i].sampler = vulkan_globals.linear_sampler_lod_bias;
+	}
+
+	VkImageView imageViews = vulkan_globals.raygen_desc_set_items.model_materials[14].tx_imageview;
+	imageViews = vulkan_globals.raygen_desc_set_items.model_materials[37].tx_imageview;
+	imageViews;
+
 	// texture image view
 	VkDescriptorImageInfo alias_texture_image_info;
 	memset(&alias_texture_image_info, 0, sizeof(VkDescriptorImageInfo));
@@ -952,6 +965,13 @@ VkResult R_UpdateRaygenDescriptorSet()
 	alias_texture_fullbright_image_info.imageView = vulkan_globals.raygen_desc_set_items.alias_texture_fullbright_view;
 	alias_texture_fullbright_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	alias_texture_fullbright_image_info.sampler = vulkan_globals.linear_sampler_lod_bias;
+
+	// texture index info
+	VkDescriptorBufferInfo textureUniformBufferInfo;
+	memset(&textureUniformBufferInfo, 0, sizeof(VkDescriptorBufferInfo));
+	textureUniformBufferInfo.buffer = vulkan_globals.raygen_desc_set_items.texture_test_buffer;
+	textureUniformBufferInfo.offset = 0;
+	textureUniformBufferInfo.range = VK_WHOLE_SIZE;
 
 	// uniform buffer (alias information)
 	VkDescriptorBufferInfo aliasUniformBufferInfo;
@@ -997,13 +1017,20 @@ VkResult R_UpdateRaygenDescriptorSet()
 	raygen_writes[4].dstSet = vulkan_globals.raygen_desc_set;
 	raygen_writes[4].pBufferInfo = &indexBufferInfo;
 
-	raygen_writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	/*raygen_writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	raygen_writes[5].dstBinding = 5;
 	raygen_writes[5].descriptorCount = 1;
 	raygen_writes[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	raygen_writes[5].dstSet = vulkan_globals.raygen_desc_set;
-	raygen_writes[5].pImageInfo = &alias_texture_image_info;
+	raygen_writes[5].pImageInfo = &alias_texture_image_info;*/
 
+	raygen_writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[5].dstBinding = 5;
+	raygen_writes[5].descriptorCount = model_materials_count;
+	raygen_writes[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	raygen_writes[5].dstSet = vulkan_globals.raygen_desc_set;
+	raygen_writes[5].pImageInfo = texture_image_infos;
+	
 	raygen_writes[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	raygen_writes[6].dstBinding = 6;
 	raygen_writes[6].descriptorCount = 1;
@@ -1014,11 +1041,20 @@ VkResult R_UpdateRaygenDescriptorSet()
 	raygen_writes[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	raygen_writes[7].dstBinding = 7;
 	raygen_writes[7].descriptorCount = 1;
+	raygen_writes[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_writes[7].dstSet = vulkan_globals.raygen_desc_set;
+	raygen_writes[7].pBufferInfo = &textureUniformBufferInfo;
+
+	/*raygen_writes[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[7].dstBinding = 7;
+	raygen_writes[7].descriptorCount = 1;
 	raygen_writes[7].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	raygen_writes[7].dstSet = vulkan_globals.raygen_desc_set;
-	raygen_writes[7].pBufferInfo = &aliasUniformBufferInfo;
+	raygen_writes[7].pBufferInfo = &aliasUniformBufferInfo;*/
 
 	vkUpdateDescriptorSets(vulkan_globals.device, 8, raygen_writes, 0, NULL);
+
+	free(texture_image_infos);
 
 	return VK_SUCCESS;
 }
@@ -1050,7 +1086,9 @@ void R_RenderScene_RTX(void)
 
 	R_SetupCameraMatrices_RTX();
 
-	R_DrawViewModel();
+	R_DrawWorld();
+
+	//R_DrawViewModel();
 
 	R_SetupTestAS_RTX();
 

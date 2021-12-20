@@ -1297,7 +1297,7 @@ void R_CreateDescriptorSetLayouts()
 
 	// layout binding texture
 	raygen_layout_bindings[5].binding = 5;
-	raygen_layout_bindings[5].descriptorCount = 1;
+	raygen_layout_bindings[5].descriptorCount = MAX_GLTEXTURES;
 	raygen_layout_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	raygen_layout_bindings[5].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 
@@ -1310,7 +1310,7 @@ void R_CreateDescriptorSetLayouts()
 	//layout binding alias uniform buffer
 	raygen_layout_bindings[7].binding = 7;
 	raygen_layout_bindings[7].descriptorCount = 1;
-	raygen_layout_bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	raygen_layout_bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	raygen_layout_bindings[7].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 
 	descriptor_set_layout_create_info.bindingCount = 8;
@@ -1335,7 +1335,7 @@ void R_CreateDescriptorPool()
 {
 	VkDescriptorPoolSize pool_sizes[7];
 	pool_sizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	pool_sizes[0].descriptorCount = MAX_GLTEXTURES + 3;
+	pool_sizes[0].descriptorCount = MAX_GLTEXTURES;
 	pool_sizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 	pool_sizes[1].descriptorCount = 16;
 	pool_sizes[2].type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
@@ -1347,7 +1347,7 @@ void R_CreateDescriptorPool()
 	pool_sizes[5].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	pool_sizes[5].descriptorCount = 2;
 	pool_sizes[6].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	pool_sizes[6].descriptorCount = 2;
+	pool_sizes[6].descriptorCount = 3;
 
 	VkDescriptorPoolCreateInfo descriptor_pool_create_info;
 	memset(&descriptor_pool_create_info, 0, sizeof(descriptor_pool_create_info));
