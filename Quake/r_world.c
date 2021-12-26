@@ -711,7 +711,8 @@ void R_DrawTextureChains_Multitexture_RTX(qmodel_t* model, entity_t* ent, texcha
 	
 	int current_texture_count = 0;
 	int num_vbo_indices_old = 0;
-	for (i = 0; i < model->numtextures; ++i)
+	//for (i = 0; i < model->numtextures; ++i)
+	for (i = 0; i < 1; ++i)
 	{
 
 		t = model->textures[i];

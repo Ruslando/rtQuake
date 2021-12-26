@@ -948,10 +948,6 @@ VkResult R_UpdateRaygenDescriptorSet()
 		texture_image_infos[i].sampler = vulkan_globals.linear_sampler_lod_bias;
 	}
 
-	VkImageView imageViews = vulkan_globals.raygen_desc_set_items.model_materials[14].tx_imageview;
-	imageViews = vulkan_globals.raygen_desc_set_items.model_materials[37].tx_imageview;
-	imageViews;
-
 	// texture image view
 	VkDescriptorImageInfo alias_texture_image_info;
 	memset(&alias_texture_image_info, 0, sizeof(VkDescriptorImageInfo));
