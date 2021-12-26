@@ -38,7 +38,7 @@ int					allocated[LMBLOCK_WIDTH];
 
 unsigned	blocklights[LMBLOCK_WIDTH*LMBLOCK_HEIGHT*3 + 1]; //johnfitz -- was 18*18, added lit support (*3) and loosened surface extents maximum (LMBLOCK_WIDTH*LMBLOCK_HEIGHT)
 
-static VkDeviceMemory	bmodel_memory;
+VkDeviceMemory			bmodel_memory;
 VkBuffer				bmodel_vertex_buffer;
 
 extern cvar_t r_showtris;
@@ -142,6 +142,85 @@ void DrawGLPoly (glpoly_t *p, float color[3], float alpha)
 
 =============================================================
 */
+
+/*
+=================
+RT_DrawBrushModel
+=================
+*/
+void RT_DrawBrushModel(entity_t* e)
+{
+	int			i, k;
+	msurface_t* psurf;
+	float		dot;
+	mplane_t* pplane;
+	qmodel_t* clmodel;
+
+	if (R_CullModelForEntity(e))
+		return;
+
+	currententity = e;
+	clmodel = e->model;
+
+	VectorSubtract(r_refdef.vieworg, e->origin, modelorg);
+	if (e->angles[0] || e->angles[1] || e->angles[2])
+	{
+		vec3_t	temp;
+		vec3_t	forward, right, up;
+
+		VectorCopy(modelorg, temp);
+		AngleVectors(e->angles, forward, right, up);
+		modelorg[0] = DotProduct(temp, forward);
+		modelorg[1] = -DotProduct(temp, right);
+		modelorg[2] = DotProduct(temp, up);
+	}
+
+	psurf = &clmodel->surfaces[clmodel->firstmodelsurface];
+
+	// calculate dynamic lighting for bmodel if it's not an
+	// instanced model
+	if (clmodel->firstmodelsurface != 0)
+	{
+		for (k = 0; k < MAX_DLIGHTS; k++)
+		{
+			if ((cl_dlights[k].die < cl.time) ||
+				(!cl_dlights[k].radius))
+				continue;
+
+			R_MarkLights(&cl_dlights[k], k,
+				clmodel->nodes + clmodel->hulls[0].firstclipnode);
+		}
+	}
+
+	e->angles[0] = -e->angles[0];	// stupid quake bug
+	float model_matrix[16];
+	IdentityMatrix(model_matrix);
+	R_RotateForEntity(model_matrix, e->origin, e->angles);
+	e->angles[0] = -e->angles[0];	// stupid quake bug
+
+	float mvp[16];
+	memcpy(mvp, vulkan_globals.view_projection_matrix, 16 * sizeof(float));
+	MatrixMultiply(mvp, model_matrix);
+
+	R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), mvp);
+	R_ClearTextureChains(clmodel, chain_model);
+	for (i = 0; i < clmodel->nummodelsurfaces; i++, psurf++)
+	{
+		pplane = psurf->plane;
+		dot = DotProduct(modelorg, pplane->normal) - pplane->dist;
+		if (((psurf->flags & SURF_PLANEBACK) && (dot < -BACKFACE_EPSILON)) ||
+			(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
+		{
+			R_ChainSurface(psurf, chain_model);
+			R_RenderDynamicLightmaps(psurf);
+			rs_brushpolys++;
+		}
+	}
+
+	R_DrawTextureChains(clmodel, e, chain_model);
+	R_DrawTextureChains_Water(clmodel, e, chain_model);
+	R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), vulkan_globals.view_projection_matrix);
+}
 
 /*
 =================
@@ -695,7 +774,7 @@ void GL_BuildBModelVertexBuffer (void)
 	memset(&memory_allocate_info, 0, sizeof(memory_allocate_info));
 	memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 	memory_allocate_info.allocationSize = aligned_size;
-	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, 0);
 
 	VkMemoryAllocateFlagsInfo mem_alloc_flags = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
