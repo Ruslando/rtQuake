@@ -81,6 +81,11 @@ typedef struct {
 	unsigned int st_offset;
 } raygen_aliasubo_t;
 
+typedef union char_to_float_convert_s {
+	unsigned char byte[4];
+	float real;
+} char_to_float_convert_t;
+
 /*
 =============
 GLARB_GetXYZOffset
@@ -579,7 +584,7 @@ void R_SetupAliasLighting (entity_t	*e)
 R_DrawAliasModel -- johnfitz -- almost completely rewritten
 =================
 */
-void R_DrawAliasModel (entity_t *e, int* model_data_count, VkDeviceSize* blas_data_size, rt_blas_data_t** blas_data_list, VkDeviceSize* model_data_size, rt_model_data_t** model_data_list) //(entity_t *e, qboolean rt)
+void R_DrawAliasModel (entity_t *e, int* model_data_count, int* vertex_count, rt_vertex_t** vertex_data, VkDeviceSize* blas_data_size, rt_blas_data_t** blas_data_list, VkDeviceSize* model_data_size, rt_model_data_t** model_data_list) //(entity_t *e, qboolean rt)
 {
 	aliashdr_t	*paliashdr;
 	int			i, anim, skinnum;
@@ -682,33 +687,50 @@ void R_DrawAliasModel (entity_t *e, int* model_data_count, VkDeviceSize* blas_da
 		lightcolor[2] = 1.0f;
 	}
 
-	if (vulkan_globals.rt_vertex_buffer == NULL) {
-		glheapnode_t* headnode = currententity->model->vertex_heap->head;
-		glheapnode_t* next = headnode->next;
-		VkDeviceMemory heapmemory = currententity->model->vertex_heap->memory;
-		VkDeviceSize used_size_vertex = 0;
 
-		while (next != NULL) {
-			headnode = next;
-			next = headnode->next;
-		}
+	// Collects vertex data used in this frame. Normals are removed and tx and fb coords are casted to float values
+	VkDeviceMemory vertex_heapmemory = currententity->model->vertex_heap->memory;
+	glheapnode_t* vertex_heapnode = currententity->model->vertex_heap_node;
 
-		used_size_vertex = headnode->offset;
+	// animation vertex offset
+	VkDeviceSize animation_vertex_offset = GLARB_GetXYZOffset(paliashdr, lerpdata.pose2);
+	animation_vertex_offset;
 
-		void* data;
-		vkMapMemory(vulkan_globals.device, heapmemory, 0, used_size_vertex, 0, &data);
-		vkUnmapMemory(vulkan_globals.device, heapmemory);
+	void* pdata;
+	vkMapMemory(vulkan_globals.device, vertex_heapmemory, vertex_heapnode->offset, vertex_heapnode->size, 0, &pdata);
+	vkUnmapMemory(vulkan_globals.device, vertex_heapmemory);
+	unsigned char* chardata = (unsigned char*)pdata;
 
-		BufferResource_t rt_vertex_buffer_resource;
-		buffer_create(&rt_vertex_buffer_resource, used_size_vertex,
-			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+	for (int j = vertex_count[0]; j < vertex_count[0] + paliashdr->numverts_vbo; j++) {
 
-		void* test_data = buffer_map(&rt_vertex_buffer_resource);
-		memcpy(test_data, data, used_size_vertex);
-		buffer_unmap(&rt_vertex_buffer_resource);
+		rt_vertex_t* vertex_data_pointer = *vertex_data;
 
-		vulkan_globals.rt_vertex_buffer = rt_vertex_buffer_resource.buffer;
+		char_to_float_convert_t tx_float1;
+		char_to_float_convert_t tx_float2;
+
+		int offset = j * sizeof(float) * 2; // alias data takes 8 bytes for vertex and normal and also for tx coordinates
+		
+		// Vertex position
+		vertex_data_pointer[j].vertex_pos[0] = (uint32_t)chardata[offset + 0];
+		vertex_data_pointer[j].vertex_pos[1] = (uint32_t)chardata[offset + 1];
+		vertex_data_pointer[j].vertex_pos[2] = (uint32_t)chardata[offset + 2];
+
+		// Vertex texture coordinates (char arrays are converted to float values)
+		tx_float1.byte[0] = chardata[currententity->model->vbostofs + (offset + 0)];
+		tx_float1.byte[1] = chardata[currententity->model->vbostofs + (offset + 1)];
+		tx_float1.byte[2] = chardata[currententity->model->vbostofs + (offset + 2)];
+		tx_float1.byte[3] = chardata[currententity->model->vbostofs + (offset + 3)];
+
+		tx_float2.byte[0] = chardata[currententity->model->vbostofs + (offset + 4)];
+		tx_float2.byte[1] = chardata[currententity->model->vbostofs + (offset + 5)];
+		tx_float2.byte[2] = chardata[currententity->model->vbostofs + (offset + 6)];
+		tx_float2.byte[3] = chardata[currententity->model->vbostofs + (offset + 7)];
+
+		vertex_data_pointer[j].vertex_tx_coords[0] = tx_float1.real;
+		vertex_data_pointer[j].vertex_tx_coords[1] = tx_float2.real;
+
+		vertex_data_pointer[j].vertex_fb_coords[0] = tx_float1.real;
+		vertex_data_pointer[j].vertex_fb_coords[1] = tx_float2.real;
 	}
 
 	if (vulkan_globals.rt_index_buffer == NULL) {
@@ -784,13 +806,9 @@ void R_DrawAliasModel (entity_t *e, int* model_data_count, VkDeviceSize* blas_da
 			fb_imageview_index++;
 		}
 	}
-	
-	// animation vertex offset
-	VkDeviceSize animation_vertex_offset = GLARB_GetXYZOffset(paliashdr, lerpdata.pose2);
 
 	rt_blas_data_t data = {
-		.vertex_buffer_offset = currententity->model->vertex_heap_node->offset + animation_vertex_offset,
-		.vertex_tx_offset = currententity->model->vbostofs,
+		.vertex_buffer_offset = vertex_count[0] * sizeof(rt_vertex_t),
 		.vertex_count = paliashdr->numverts_vbo,
 		.index_buffer_offset = currententity->model->index_heap_node->offset,
 		.index_count = paliashdr->numindexes,
@@ -801,7 +819,6 @@ void R_DrawAliasModel (entity_t *e, int* model_data_count, VkDeviceSize* blas_da
 
 	rt_model_data_t model_data = {
 		.vertex_buffer_offset = currententity->model->vertex_heap_node->offset + animation_vertex_offset,
-		.vertex_tx_offset = currententity->model->vbostofs,
 		.index_buffer_offset = currententity->model->index_heap_node->offset,
 		.texture_buffer_offset_index = tx_imageview_index,
 		.texture_buffer_fullbright_offset_index = fb_imageview_index
@@ -814,6 +831,7 @@ void R_DrawAliasModel (entity_t *e, int* model_data_count, VkDeviceSize* blas_da
 	model_data_pointer[model_data_count[0]] = model_data;
 
 	*model_data_count += 1;
+	*vertex_count += paliashdr->numverts_vbo;
 	
 }
 

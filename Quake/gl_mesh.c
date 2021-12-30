@@ -647,6 +647,7 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	{
 		int v;
 		meshxyz_t *xyz = (meshxyz_t *) (vbodata + (f * hdr->numverts_vbo * sizeof (meshxyz_t)));
+
 		const trivertx_t *tv = trivertexes + (hdr->numverts * f);
 
 		for (v = 0; v < hdr->numverts_vbo; v++)
@@ -735,6 +736,10 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	}
 
 	free (vbodata);
+
+
+	// Upload to rt_vertex_buffer;
+	
 }
 
 /*

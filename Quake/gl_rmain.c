@@ -606,7 +606,7 @@ void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 R_DrawViewModel -- johnfitz -- gutted
 =============
 */
-void R_DrawViewModel (int* alias_data_count, VkDeviceSize* blas_data_size, rt_blas_data_t** blas_data, VkDeviceSize* model_data_size, rt_model_data_t** model_data_list)
+void R_DrawViewModel (int* alias_data_count, int* vertex_count, rt_vertex_t** vertex_data, VkDeviceSize* blas_data_size, rt_blas_data_t** blas_data, VkDeviceSize* model_data_size, rt_model_data_t** model_data_list)
 {
 	if (!r_drawviewmodel.value || !r_drawentities.value || chase_active.value)
 		return;
@@ -632,7 +632,7 @@ void R_DrawViewModel (int* alias_data_count, VkDeviceSize* blas_data_size, rt_bl
 				r_refdef.vrect.height,
 				0.7f, 1.0f);*/
 	
-	R_DrawAliasModel (currententity, alias_data_count, blas_data_size, blas_data, model_data_size, model_data_list);
+	R_DrawAliasModel (currententity, alias_data_count, vertex_count, vertex_data , blas_data_size, blas_data, model_data_size, model_data_list);
 
 	/*GL_Viewport(glx + r_refdef.vrect.x,
 				gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height,
@@ -1294,6 +1294,10 @@ void R_RenderScene_RTX(void)
 
 	TexMgr_LoadActiveTextures();
 
+	int vertex_count = 0;
+	VkDeviceSize vertex_data_size = 4096 * sizeof(rt_vertex_t);
+	rt_vertex_t* vertex_data = (rt_vertex_t*)malloc(vertex_data_size);
+
 	int model_data_count = 0;
 	VkDeviceSize blas_data_size = 64 * sizeof(rt_blas_data_t);
 	rt_blas_data_t* blas_data_list = (rt_blas_data_t*)malloc(blas_data_size);
@@ -1301,7 +1305,18 @@ void R_RenderScene_RTX(void)
 	VkDeviceSize model_data_size = 64 * sizeof(rt_model_data_t);
 	rt_model_data_t* model_data_list = (rt_model_data_t*)malloc(blas_data_size);
 
-	R_DrawViewModel(&model_data_count, &blas_data_size, &blas_data_list, &model_data_size, &model_data_list);
+	R_DrawViewModel(&model_data_count, &vertex_count, &vertex_data, &blas_data_size, &blas_data_list, &model_data_size, &model_data_list);
+
+	BufferResource_t rt_vertex_buffer_resource;
+	buffer_create(&rt_vertex_buffer_resource, vertex_data_size,
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+	void* test_data = buffer_map(&rt_vertex_buffer_resource);
+	memcpy(test_data, vertex_data, vertex_data_size);
+	buffer_unmap(&rt_vertex_buffer_resource);
+
+	vulkan_globals.rt_vertex_buffer = rt_vertex_buffer_resource.buffer;
 
 	VkMemoryBarrier memoryBarrier;
 	memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
@@ -1309,8 +1324,8 @@ void R_RenderScene_RTX(void)
 	memoryBarrier.srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
 	memoryBarrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
 
-	//VkFormat rgb32float = VK_FORMAT_R32G32B32_SFLOAT;
-	VkFormat rgba8unorm = VK_FORMAT_R8G8B8A8_UNORM;
+	VkFormat rgb32float = VK_FORMAT_R32G32B32_SFLOAT;
+	//VkFormat rgba8unorm = VK_FORMAT_R8G8B8A8_UNORM;
 
 	//VkIndexType uint32 = VK_INDEX_TYPE_UINT32;
 	VkIndexType uint16 = VK_INDEX_TYPE_UINT16;
@@ -1324,28 +1339,16 @@ void R_RenderScene_RTX(void)
 		rt_blas_data_t current_alias_model = blas_data_list[i];
 		R_Create_BLAS_Instance(&blas_instances, i, vulkan_globals.rt_vertex_buffer,
 			current_alias_model.vertex_buffer_offset, current_alias_model.vertex_count,
-			current_alias_model.index_count / 3, 8, vulkan_globals.rt_index_buffer,
+			current_alias_model.index_count / 3, sizeof(rt_vertex_t), vulkan_globals.rt_index_buffer,
 			current_alias_model.index_count, current_alias_model.index_buffer_offset,
-			rgba8unorm, uint16, current_alias_model.transform_data_buffer);
+			rgb32float, uint16, current_alias_model.transform_data_buffer);
 		vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
 	}
 
 	R_Create_TLAS(blas_instances, model_data_count);
 	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
 
-	/*VkDeviceSize texture_index_offset;
-	byte* texture_indices_data = R_VertexAllocate(index_data_count * sizeof(uint32_t), &brush_texture_index_buffer, &texture_index_offset);
-	memcpy(texture_indices_data, brush_texture_index_data, index_data_count * sizeof(uint32_t));*/
-
-	//vulkan_globals.raygen_desc_set_items.model_materials = material_data;
-	//vulkan_globals.raygen_desc_set_items.vertex_buffer = rt_vertex_buffer;
-	//vulkan_globals.raygen_desc_set_items.index_buffer = rt_index_buffer;
-	////vulkan_globals.raygen_desc_set_items.texture_test_buffer = brush_texture_index_buffer;
-	//vulkan_globals.raygen_desc_set_items.texture_index_count = material_data_count;
-
 	R_UpdateRaygenDescriptorSet();
-
-	//R_SetupTestAS_RTX();
 
 	R_SetupRaytracing();
 
