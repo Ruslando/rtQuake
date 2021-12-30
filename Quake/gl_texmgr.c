@@ -376,6 +376,35 @@ void TexMgr_NewGame (void)
 	TexMgr_LoadPalette ();
 }
 
+void TexMgr_LoadActiveTextures(void)
+{
+	if (vulkan_globals.texture_list == NULL) {
+		VkImageView* images = (VkImageView*)malloc(MAX_GLTEXTURES * sizeof(VkImageView));
+		int image_count = 0;
+		gltexture_t* current_texture = active_gltextures;
+
+		qboolean last_check = false;
+		while (current_texture->next != NULL && !last_check) {
+			glheapnode_t* heapnode = current_texture->heap_node;
+
+			int imageview_index = -1;
+			
+			while (heapnode->prev != NULL) {
+				heapnode = heapnode->prev;
+				imageview_index++;
+			}
+
+			images[imageview_index] = current_texture->image_view;
+			image_count++;
+			current_texture = current_texture->next;
+
+		}
+
+		vulkan_globals.texture_list = images;
+		vulkan_globals.texture_list_count = image_count;
+	}
+}
+
 /*
 ================
 TexMgr_Init
@@ -866,6 +895,7 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 	GL_SetObjectName((uint64_t)glt->image_view, VK_OBJECT_TYPE_IMAGE_VIEW, va("%s image view", glt->name));
 
 	// Allocate and update descriptor for this texture
+
 	glt->descriptor_set = R_AllocateDescriptorSet(&vulkan_globals.single_texture_set_layout);
 	GL_SetObjectName((uint64_t)glt->descriptor_set, VK_OBJECT_TYPE_DESCRIPTOR_SET, va("%s desc set", glt->name));
 

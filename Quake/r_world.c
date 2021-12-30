@@ -578,32 +578,34 @@ void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, c
 	gltexture_t* fullbright = NULL;
 
 	// map buffer of bmodel vertex buffer and copy data to array
-	void* data;
-	vkMapMemory(vulkan_globals.device, bmodel_memory, 0, VK_WHOLE_SIZE, 0, &data);
-	rt_vertex_t* datapoint = (rt_vertex_t*)data;
+	//void* data;
+	//vkMapMemory(vulkan_globals.device, bmodel_memory, 0, VK_WHOLE_SIZE, 0, &data);
+	//rt_vertex_t* datapoint = (rt_vertex_t*)data;
 
-	// the brush world model has to be only copied over, since it uses the same layout that the vertex buffer will have in the rt shader. the alias model will have to be modified
-	for (i = 0; i < model->numvertexes; i++) {
-		// realloc when vertex count too high
-		size_t rt_vertex_size = sizeof(rt_vertex_t);
-		if (brush_data.vertex_data_count[0] + 1 > brush_data.vertex_data_size[0] / rt_vertex_size) {
-			if (brush_data.vertex_data != NULL) {
-				*brush_data.vertex_data_size *= 2;
-				int data_size = brush_data.vertex_data_size[0];
-				rt_vertex_t* tmp_vertices = (rt_vertex_t*)realloc(*brush_data.vertex_data, data_size);
+	// TODO: This reduces the performance immensly. Have to create a buffer with everything from the beginning which can be accessed
 
-				if (tmp_vertices != NULL) {
-					*brush_data.vertex_data = tmp_vertices;
-				}
-			}
-		}
+	//// the brush world model has to be only copied over, since it uses the same layout that the vertex buffer will have in the rt shader. the alias model will have to be modified
+	//for (i = 0; i < model->numvertexes; i++) {
+	//	// realloc when vertex count too high
+	//	size_t rt_vertex_size = sizeof(rt_vertex_t);
+	//	if (brush_data.vertex_data_count[0] + 1 > brush_data.vertex_data_size[0] / rt_vertex_size) {
+	//		if (brush_data.vertex_data != NULL) {
+	//			*brush_data.vertex_data_size *= 2;
+	//			int data_size = brush_data.vertex_data_size[0];
+	//			rt_vertex_t* tmp_vertices = (rt_vertex_t*)realloc(*brush_data.vertex_data, data_size);
 
-		rt_vertex_t* vertex_data_pointer = *brush_data.vertex_data;
-		// transfer rt_vertex_data from bmodel_memory to vertex data pointer array
-		vertex_data_pointer[i] = datapoint[i];
-		*brush_data.vertex_data_count += 1;
-	}
-	vkUnmapMemory(vulkan_globals.device, bmodel_memory);
+	//			if (tmp_vertices != NULL) {
+	//				*brush_data.vertex_data = tmp_vertices;
+	//			}
+	//		}
+	//	}
+
+	//	rt_vertex_t* vertex_data_pointer = *brush_data.vertex_data;
+	//	// transfer rt_vertex_data from bmodel_memory to vertex data pointer array
+	//	vertex_data_pointer[i] = datapoint[i];
+	//	*brush_data.vertex_data_count += 1;
+	//}
+	//vkUnmapMemory(vulkan_globals.device, bmodel_memory);
 	
 	int previous_index_data_count = 0;
 	//for (i = 0; i < model->numtextures; ++i)

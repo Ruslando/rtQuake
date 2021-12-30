@@ -24,6 +24,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //r_alias.c -- alias model rendering
 
 #include "quakedef.h"
+#include "gl_heap.h"
 
 extern cvar_t r_drawflat, gl_fullbrights, r_lerpmodels, r_lerpmove, r_showtris; //johnfitz
 extern cvar_t scr_fov, cl_gun_fovscale;
@@ -254,35 +255,35 @@ static void R_Create_Alias_BLAS(aliashdr_t* paliashdr, float transform_mat[16], 
 
 static void GL_CreateAliasBLAS(aliashdr_t* paliashdr, lerpdata_t lerpdata, gltexture_t* tx, gltexture_t* fb, float model_matrix[16], float entity_alpha, qboolean alphatest)
 {
-	float	blend;
+	//float	blend;
 
-	if (lerpdata.pose1 != lerpdata.pose2)
-		blend = lerpdata.blend;
-	else // poses the same means either 1. the entity has paused its animation, or 2. r_lerpmodels is disabled
-		blend = 0;
+	//if (lerpdata.pose1 != lerpdata.pose2)
+	//	blend = lerpdata.blend;
+	//else // poses the same means either 1. the entity has paused its animation, or 2. r_lerpmodels is disabled
+	//	blend = 0;
 
-	VkBuffer uniform_buffer;
-	uint32_t uniform_offset;
-	VkDescriptorSet ubo_set;
-	raygen_aliasubo_t* ubo = (raygen_aliasubo_t*)R_UniformAllocate(sizeof(raygen_aliasubo_t), &uniform_buffer, &uniform_offset, &ubo_set);
+	//VkBuffer uniform_buffer;
+	//uint32_t uniform_offset;
+	//VkDescriptorSet ubo_set;
+	//raygen_aliasubo_t* ubo = (raygen_aliasubo_t*)R_UniformAllocate(sizeof(raygen_aliasubo_t), &uniform_buffer, &uniform_offset, &ubo_set);
 
-	unsigned int vbostoffset = (unsigned)currententity->model->vbostofs;
-	memcpy(ubo->model_matrix, model_matrix, 16 * sizeof(float));
-	ubo->st_offset = vbostoffset;
+	//unsigned int vbostoffset = (unsigned)currententity->model->vbostofs;
+	//memcpy(ubo->model_matrix, model_matrix, 16 * sizeof(float));
+	//ubo->st_offset = vbostoffset;
 
-	// pose 2 refers to the current frame. method returns offset of vertex buffer which contains current vertices. this offset is added to the vertex buffer address
-	VkDeviceSize vertex_offset = GLARB_GetXYZOffset(paliashdr, lerpdata.pose2);
+	//// pose 2 refers to the current frame. method returns offset of vertex buffer which contains current vertices. this offset is added to the vertex buffer address
+	//VkDeviceSize vertex_offset = GLARB_GetXYZOffset(paliashdr, lerpdata.pose2);
 
-	vulkan_globals.raygen_desc_set_items.vertex_buffer = currententity->model->vertex_buffer;
-	vulkan_globals.raygen_desc_set_items.index_buffer = currententity->model->index_buffer;
-	vulkan_globals.raygen_desc_set_items.alias_texture_view = tx->image_view;
-	if (fb != NULL) {
-		vulkan_globals.raygen_desc_set_items.alias_texture_fullbright_view = fb->image_view;
-	}
-	vulkan_globals.raygen_desc_set_items.alias_uniform_buffer = uniform_buffer;
+	//vulkan_globals.raygen_desc_set_items.vertex_buffer = currententity->model->vertex_buffer;
+	//vulkan_globals.raygen_desc_set_items.index_buffer = currententity->model->index_buffer;
+	//vulkan_globals.raygen_desc_set_items.alias_texture_view = tx->image_view;
+	//if (fb != NULL) {
+	//	vulkan_globals.raygen_desc_set_items.alias_texture_fullbright_view = fb->image_view;
+	//}
+	//vulkan_globals.raygen_desc_set_items.alias_uniform_buffer = uniform_buffer;
 
-	R_Create_Alias_BLAS(paliashdr, ubo->model_matrix, currententity->model->vertex_buffer, vertex_offset, currententity->model->index_buffer);
-	rs_aliaspasses += paliashdr->numtris;
+	//R_Create_Alias_BLAS(paliashdr, ubo->model_matrix, currententity->model->vertex_buffer, vertex_offset, currententity->model->index_buffer);
+	//rs_aliaspasses += paliashdr->numtris;
 }
 
 /*
@@ -578,7 +579,7 @@ void R_SetupAliasLighting (entity_t	*e)
 R_DrawAliasModel -- johnfitz -- almost completely rewritten
 =================
 */
-void R_DrawAliasModel (entity_t *e) //(entity_t *e, qboolean rt)
+void R_DrawAliasModel (entity_t *e, int* model_data_count, VkDeviceSize* blas_data_size, rt_blas_data_t** blas_data_list, VkDeviceSize* model_data_size, rt_model_data_t** model_data_list) //(entity_t *e, qboolean rt)
 {
 	aliashdr_t	*paliashdr;
 	int			i, anim, skinnum;
@@ -681,17 +682,138 @@ void R_DrawAliasModel (entity_t *e) //(entity_t *e, qboolean rt)
 		lightcolor[2] = 1.0f;
 	}
 
-	//
-	// draw it
-	//
-	// 
-	
-	/*if (rt) {
-		GL_CreateAliasBLAS(paliashdr, lerpdata, tx, fb, model_matrix, entalpha, alphatest);
+	if (vulkan_globals.rt_vertex_buffer == NULL) {
+		glheapnode_t* headnode = currententity->model->vertex_heap->head;
+		glheapnode_t* next = headnode->next;
+		VkDeviceMemory heapmemory = currententity->model->vertex_heap->memory;
+		VkDeviceSize used_size_vertex = 0;
+
+		while (next != NULL) {
+			headnode = next;
+			next = headnode->next;
+		}
+
+		used_size_vertex = headnode->offset;
+
+		void* data;
+		vkMapMemory(vulkan_globals.device, heapmemory, 0, used_size_vertex, 0, &data);
+		vkUnmapMemory(vulkan_globals.device, heapmemory);
+
+		BufferResource_t rt_vertex_buffer_resource;
+		buffer_create(&rt_vertex_buffer_resource, used_size_vertex,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+		void* test_data = buffer_map(&rt_vertex_buffer_resource);
+		memcpy(test_data, data, used_size_vertex);
+		buffer_unmap(&rt_vertex_buffer_resource);
+
+		vulkan_globals.rt_vertex_buffer = rt_vertex_buffer_resource.buffer;
 	}
-	else {
-		GL_DrawAliasFrame(paliashdr, lerpdata, tx, fb, model_matrix, entalpha, alphatest);
-	}*/
+
+	if (vulkan_globals.rt_index_buffer == NULL) {
+		glheapnode_t* headnode = currententity->model->index_heap->head;
+		glheapnode_t* next = headnode->next;
+		VkDeviceMemory heapmemory = currententity->model->index_heap->memory;
+		VkDeviceSize used_size_index = 0;
+
+		while (next != NULL) {
+			headnode = next;
+			next = headnode->next;
+		}
+
+		used_size_index = headnode->offset;
+
+		void* data;
+		vkMapMemory(vulkan_globals.device, heapmemory, 0, used_size_index, 0, &data);
+		vkUnmapMemory(vulkan_globals.device, heapmemory);
+
+		BufferResource_t rt_index_buffer_resource;
+		buffer_create(&rt_index_buffer_resource, used_size_index,
+			VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+		void* test_data = buffer_map(&rt_index_buffer_resource);
+		memcpy(test_data, data, used_size_index);
+		buffer_unmap(&rt_index_buffer_resource);
+
+		vulkan_globals.rt_index_buffer = rt_index_buffer_resource.buffer;
+	}
+
+	// blas transformation matrix
+	VkTransformMatrixKHR transform;
+	memset(&transform, 0, sizeof(VkTransformMatrixKHR));
+	transform.matrix[0][0] = model_matrix[0];
+	transform.matrix[0][1] = model_matrix[4];
+	transform.matrix[0][2] = model_matrix[8];
+	transform.matrix[0][3] = model_matrix[12];
+
+	transform.matrix[1][0] = model_matrix[1];
+	transform.matrix[1][1] = model_matrix[5];
+	transform.matrix[1][2] = model_matrix[9];
+	transform.matrix[1][3] = model_matrix[13];
+
+	transform.matrix[2][0] = model_matrix[2];
+	transform.matrix[2][1] = model_matrix[6];
+	transform.matrix[2][2] = model_matrix[10];
+	transform.matrix[2][3] = model_matrix[14];
+
+	VkBuffer transform_buffer;
+	VkDeviceSize transform_buffer_offset;
+	void* transform_data = R_VertexAllocate(sizeof(VkTransformMatrixKHR), &transform_buffer, &transform_buffer_offset);
+	memcpy(transform_data, &transform, sizeof(VkTransformMatrixKHR));
+
+	//calculating texture index
+	int tx_imageview_index = -1;
+	int fb_imageview_index = -1;
+
+	if (tx) {
+		glheapnode_t* txheapnode = tx->heap_node;
+
+		while (txheapnode->prev != NULL) {
+			txheapnode = txheapnode->prev;
+			tx_imageview_index++;
+		}
+	}
+
+	if (fb) {
+		glheapnode_t* fbheapnode = fb->heap_node;
+
+		while (fbheapnode->prev != NULL) {
+			fbheapnode = fbheapnode->prev;
+			fb_imageview_index++;
+		}
+	}
+	
+	// animation vertex offset
+	VkDeviceSize animation_vertex_offset = GLARB_GetXYZOffset(paliashdr, lerpdata.pose2);
+
+	rt_blas_data_t data = {
+		.vertex_buffer_offset = currententity->model->vertex_heap_node->offset + animation_vertex_offset,
+		.vertex_tx_offset = currententity->model->vbostofs,
+		.vertex_count = paliashdr->numverts_vbo,
+		.index_buffer_offset = currententity->model->index_heap_node->offset,
+		.index_count = paliashdr->numindexes,
+		.texture_buffer_offset_index = tx_imageview_index,
+		.texture_buffer_fullbright_offset_index = fb_imageview_index,
+		.transform_data_buffer = transform_buffer
+	};
+
+	rt_model_data_t model_data = {
+		.vertex_buffer_offset = currententity->model->vertex_heap_node->offset + animation_vertex_offset,
+		.vertex_tx_offset = currententity->model->vbostofs,
+		.index_buffer_offset = currententity->model->index_heap_node->offset,
+		.texture_buffer_offset_index = tx_imageview_index,
+		.texture_buffer_fullbright_offset_index = fb_imageview_index
+	};
+
+	rt_blas_data_t* blas_data_pointer = *blas_data_list;
+	blas_data_pointer[model_data_count[0]] = data;
+
+	rt_model_data_t* model_data_pointer = *model_data_list;
+	model_data_pointer[model_data_count[0]] = model_data;
+
+	*model_data_count += 1;
 	
 }
 

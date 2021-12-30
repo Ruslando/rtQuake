@@ -210,26 +210,32 @@ typedef struct rt_data_s {
 	model_material_t** texture_data;
 } rt_data_t;
 
-typedef struct raygen_desc_set_items_s {
-	VkImageView color_buffers_view;
-	accel_struct_t tlas;
-	VkBuffer uniform_buffer;
-	VkBuffer alias_uniform_buffer;
-	int texture_index_count;
-	VkBuffer texture_test_buffer;
-	VkBuffer vertex_buffer;
-	VkBuffer index_buffer;
-	model_material_t* model_materials;
-	VkImageView alias_texture_view;
-	VkImageView alias_texture_fullbright_view;
+typedef struct rt_blas_data_t {
+	int vertex_buffer_offset;
+	int vertex_tx_offset;
+	int vertex_count;
 
-	/*VkImageView output_image_view;
+	int index_buffer_offset;
+	int index_count;
+
+	int texture_buffer_offset_index;
+	int texture_buffer_fullbright_offset_index;
+
+	VkBuffer transform_data_buffer;
+} rt_blas_data_t;
+
+typedef struct rt_model_data_s {
+	int vertex_buffer_offset;
+	int vertex_tx_offset;
+	int index_buffer_offset;
+	int texture_buffer_offset_index;
+	int texture_buffer_fullbright_offset_index;
+} rt_model_data_t;
+
+typedef struct raygen_desc_set_items_s {
+	VkImageView output_image_view;
 	accel_struct_t tlas;
 	VkBuffer uniform_buffer;
-	int texture_index_count;
-	VkBuffer vertex_buffer;
-	VkBuffer index_buffer;
-	model_material_t* model_materials;*/
 }raygen_desc_set_items_t;
 
 typedef struct vulkan_pipeline_layout_s {
@@ -281,6 +287,12 @@ typedef struct
 
 	// Raygen descriptor set items
 	raygen_desc_set_items_t				raygen_desc_set_items;
+
+	VkBuffer							rt_vertex_buffer;
+	VkBuffer							rt_index_buffer;
+	VkBuffer							rt_model_info_buffer;
+	VkImageView*						texture_list;
+	int									texture_list_count;
 
 	// Instance extensions
 	qboolean							get_surface_capabilities_2;
@@ -564,7 +576,7 @@ void R_UpdateWarpTextures(void);
 
 void R_DrawWorld(void);
 void R_FillWorldModelData(rt_data_t brush_data);
-void R_DrawAliasModel(entity_t* e);
+void R_DrawAliasModel(entity_t* e, int* alias_data_count, VkDeviceSize* alias_data_size, rt_blas_data_t** alias_data, VkDeviceSize* model_data_size, rt_model_data_t** model_data_list);
 void R_DrawBrushModel(entity_t* e);
 void R_DrawSpriteModel(entity_t* e);
 
@@ -629,7 +641,9 @@ VkResult R_UpdateRaygenDescriptorSet();
 
 // Acceleration structures
 // Creates bottom level acceleration strucuture (BLAS)
-void R_Create_BLAS_Instance(accel_struct_t** blas_instances, int blas_index, VkBuffer vertex_buffer, uint32_t vertex_offset, uint32_t num_vertices, uint32_t num_triangles, uint32_t stride, VkBuffer index_buffer, uint32_t num_indices, uint32_t index_offset);
+void R_Create_BLAS_Instance(accel_struct_t** blas_instances, int blas_index, VkBuffer vertex_buffer,
+	uint32_t vertex_offset, uint32_t num_vertices, uint32_t num_triangles, uint32_t stride,
+	VkBuffer index_buffer, uint32_t num_indices, uint32_t index_offset, VkFormat format, VkIndexType index_type, VkBuffer transform_data);
 void R_Create_TLAS();
 static void vkpt_destroy_acceleration_structure();
 int accel_matches(accel_match_info_t* match, int fast_build,uint32_t vertex_count,uint32_t index_count);
