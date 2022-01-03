@@ -223,17 +223,29 @@ typedef struct rt_blas_data_t {
 	VkBuffer transform_data_buffer;
 } rt_blas_data_t;
 
-typedef struct rt_model_data_s {
+typedef struct rt_model_shader_data_s {
 	int vertex_buffer_offset;
 	int index_buffer_offset;
 	int texture_buffer_offset_index;
 	int texture_buffer_fullbright_offset_index;
+} rt_model_shader_data_t;
+
+typedef struct rt_model_data_s {
+	int* vertex_count;
+	rt_vertex_t** vertex_data;
+
+	int* index_count;
+	uint32_t** index_data;
+
+	int* model_data_count;
+	rt_blas_data_t** blas_data;
+	rt_model_shader_data_t** model_shader_data;
 } rt_model_data_t;
+
 
 typedef struct raygen_desc_set_items_s {
 	VkImageView output_image_view;
 	accel_struct_t tlas;
-	VkBuffer uniform_buffer;
 }raygen_desc_set_items_t;
 
 typedef struct vulkan_pipeline_layout_s {
@@ -286,9 +298,11 @@ typedef struct
 	// Raygen descriptor set items
 	raygen_desc_set_items_t				raygen_desc_set_items;
 
-	VkBuffer							rt_vertex_buffer;
-	VkBuffer							rt_index_buffer;
-	VkBuffer							rt_model_info_buffer;
+	BufferResource_t					rt_vertex_buffer;
+	BufferResource_t					rt_index_buffer;
+	BufferResource_t					rt_uniform_buffer;
+
+	BufferResource_t					rt_model_info_buffer;
 	VkImageView*						texture_list;
 	int									texture_list_count;
 
@@ -573,8 +587,8 @@ void R_TranslateNewPlayerSkin(int playernum); //johnfitz -- this handles cases w
 void R_UpdateWarpTextures(void);
 
 void R_DrawWorld(void);
-void R_FillWorldModelData(rt_data_t brush_data);
-void R_DrawAliasModel(entity_t* e, int* alias_data_count, int* vertex_count, rt_vertex_t** vertex_data, VkDeviceSize* alias_data_size, rt_blas_data_t** alias_data, VkDeviceSize* model_data_size, rt_model_data_t** model_data_list);
+void R_FillWorldModelData(rt_model_data_t brush_data);
+void R_DrawAliasModel(entity_t* e, rt_model_data_t model_data);
 void R_DrawBrushModel(entity_t* e);
 void R_DrawSpriteModel(entity_t* e);
 

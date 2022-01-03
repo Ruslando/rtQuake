@@ -314,16 +314,17 @@ void R_SetupCameraMatrices_RTX()
 
 	R_BindPipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline);
 
+	if (vulkan_globals.rt_uniform_buffer.buffer == NULL) {
+		BufferResource_t uniform_buffer_resource;
+		buffer_create(&uniform_buffer_resource, sizeof(raygen_uniform_t), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-	//TODO: Create buffer somewhere els
-	BufferResource_t uniform_buffer_resource;
-	buffer_create(&uniform_buffer_resource, sizeof(raygen_uniform_t), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+		vulkan_globals.rt_uniform_buffer = uniform_buffer_resource;
+	}
 
-	void* data = buffer_map(&uniform_buffer_resource);
+	void* data = buffer_map(&vulkan_globals.rt_uniform_buffer);
 	memcpy(data, &inverse_matrices, sizeof(raygen_uniform_t));
-	buffer_unmap(&uniform_buffer_resource);
+	buffer_unmap(&vulkan_globals.rt_uniform_buffer);
 
-	vulkan_globals.raygen_desc_set_items.uniform_buffer = uniform_buffer_resource.buffer;
 	//R_PushConstants(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, 0, sizeof(inverse_matrices), &inverse_matrices);
 
 }
@@ -606,7 +607,7 @@ void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 R_DrawViewModel -- johnfitz -- gutted
 =============
 */
-void R_DrawViewModel (int* alias_data_count, int* vertex_count, rt_vertex_t** vertex_data, VkDeviceSize* blas_data_size, rt_blas_data_t** blas_data, VkDeviceSize* model_data_size, rt_model_data_t** model_data_list)
+void R_DrawViewModel (rt_model_data_t model_data)
 {
 	if (!r_drawviewmodel.value || !r_drawentities.value || chase_active.value)
 		return;
@@ -632,7 +633,7 @@ void R_DrawViewModel (int* alias_data_count, int* vertex_count, rt_vertex_t** ve
 				r_refdef.vrect.height,
 				0.7f, 1.0f);*/
 	
-	R_DrawAliasModel (currententity, alias_data_count, vertex_count, vertex_data , blas_data_size, blas_data, model_data_size, model_data_list);
+	R_DrawAliasModel (currententity, model_data);
 
 	/*GL_Viewport(glx + r_refdef.vrect.x,
 				gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height,
@@ -849,21 +850,25 @@ void R_Create_TLAS(accel_struct_t* blas_instances, uint32_t num_instances) {
 	buffer_create(&geometry_buffer_instance, geometryInstanceBufferSize, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
+	VkAccelerationStructureInstanceKHR* geometry_instances = (VkAccelerationStructureInstanceKHR*)malloc(geometryInstanceBufferSize);
+
 	for (int i = 0; i < (int) num_instances; i++) {
 		accel_struct_t current_blas_instance = blas_instances[i];
 		VkAccelerationStructureInstanceKHR geometryInstance;
 		memset(&geometryInstance, 0, sizeof(VkAccelerationStructureInstanceKHR));
 		geometryInstance.transform = transformMatrix;
-		geometryInstance.instanceCustomIndex = 0;
+		geometryInstance.instanceCustomIndex = i;
 		geometryInstance.mask = 0xFF;
 		geometryInstance.instanceShaderBindingTableRecordOffset = 0;
 		geometryInstance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
 		geometryInstance.accelerationStructureReference = current_blas_instance.mem.address;
-		
-		void* instance_data = buffer_map(&geometry_buffer_instance);
-		memcpy(instance_data, &geometryInstance, geometryInstanceBufferSize);
-		buffer_unmap(&geometry_buffer_instance);
+
+		geometry_instances[i] = geometryInstance;
 	}
+
+	void* instance_data = buffer_map(&geometry_buffer_instance);
+	memcpy(instance_data, geometry_instances, geometryInstanceBufferSize);
+	buffer_unmap(&geometry_buffer_instance);
 
 	// Build the TLAS
 	VkAccelerationStructureGeometryDataKHR geometry = {
@@ -944,6 +949,7 @@ void R_Create_TLAS(accel_struct_t* blas_instances, uint32_t num_instances) {
 
 	vulkan_globals.fpCmdBuildAccelerationStructuresKHR(vulkan_globals.command_buffer, 1, &buildInfo, build_range_infos);
 
+	// TODO: Free geometry and scratch safely after building
 	/*buffer_destroy(&scratch_buffer);
 	buffer_destroy(&geometry_buffer_instance);*/
 }
@@ -972,21 +978,21 @@ VkResult R_UpdateRaygenDescriptorSet()
 	// uniform buffer (camera matrices)
 	VkDescriptorBufferInfo bufferInfo;
 	memset(&bufferInfo, 0, sizeof(VkDescriptorBufferInfo));
-	bufferInfo.buffer = vulkan_globals.raygen_desc_set_items.uniform_buffer;
+	bufferInfo.buffer = vulkan_globals.rt_uniform_buffer.buffer;
 	bufferInfo.offset = 0;
 	bufferInfo.range = VK_WHOLE_SIZE;
 
 	// vertex buffer
 	VkDescriptorBufferInfo vertexBufferInfo;
 	memset(&vertexBufferInfo, 0, sizeof(VkDescriptorBufferInfo));
-	vertexBufferInfo.buffer = vulkan_globals.rt_vertex_buffer;
+	vertexBufferInfo.buffer = vulkan_globals.rt_vertex_buffer.buffer;
 	vertexBufferInfo.offset = 0;
 	vertexBufferInfo.range = VK_WHOLE_SIZE;
 
 	// index buffer
 	VkDescriptorBufferInfo indexBufferInfo;
 	memset(&indexBufferInfo, 0, sizeof(VkDescriptorBufferInfo));
-	indexBufferInfo.buffer = vulkan_globals.rt_index_buffer;
+	indexBufferInfo.buffer = vulkan_globals.rt_index_buffer.buffer;
 	indexBufferInfo.offset = 0;
 	indexBufferInfo.range = VK_WHOLE_SIZE;
 
@@ -1007,7 +1013,7 @@ VkResult R_UpdateRaygenDescriptorSet()
 	// storage buffer (model information)
 	VkDescriptorBufferInfo modelInfoBufferInfo;
 	memset(&modelInfoBufferInfo, 0, sizeof(VkDescriptorBufferInfo));
-	modelInfoBufferInfo.buffer = vulkan_globals.rt_model_info_buffer;
+	modelInfoBufferInfo.buffer = vulkan_globals.rt_model_info_buffer.buffer;
 	modelInfoBufferInfo.offset = 0;
 	modelInfoBufferInfo.range = VK_WHOLE_SIZE;
 
@@ -1202,6 +1208,8 @@ void R_Create_BLAS_Instance(accel_struct_t** blas_instances, int blas_index, VkB
 	const VkAccelerationStructureBuildRangeInfoKHR** build_range_infos = &build_range;
 
 	vulkan_globals.fpCmdBuildAccelerationStructuresKHR(vulkan_globals.command_buffer, 1, &buildInfo, build_range_infos);
+
+	// TODO: Free created buffers
 }
 
 //void R_Test(brush_data_t brush_data) {
@@ -1238,85 +1246,76 @@ void R_RenderScene_RTX(void)
 	size_t blas_instances_size = 512 * sizeof(accel_struct_t);
 	accel_struct_t* blas_instances = (accel_struct_t*)malloc(blas_instances_size);
 
-	//// Vertex data is already created for brush world models. Only has to be assigned from R_FillWorldModelData
-	//VkBuffer rt_vertex_buffer = NULL;
-	//size_t vertex_data_count = 0;
-	//size_t vertex_data_size = 1024 * sizeof(rt_vertex_t);
-	//rt_vertex_t* vertex_data = (rt_vertex_t*)malloc(vertex_data_size);
-	//
-	//// Index data
-	//VkBuffer rt_index_buffer;
-	//size_t index_data_count = 0;
-	//size_t index_data_size = 1024 * sizeof(uint32_t); // initial index value
-	//uint32_t* index_data = (uint32_t*) malloc(index_data_size);
-
-	//// Index offsets
-	//size_t geometry_count = 0;
-	//size_t geometry_index_data_size = 128 * sizeof(uint32_t); // initial index value
-	//uint32_t* geometry_index_offsets_data = (uint32_t*)malloc(index_data_size);
-
-	//// TODO: Reintroduce realloc for material data
-	//// Texture (Materials) data
-	//size_t material_data_count = 0;
-	//size_t material_data_size = 112 * sizeof(model_material_t); // 111 max number of textures available
-	//model_material_t* material_data = (model_material_t*)malloc(material_data_size);
-
-	//rt_data_t rt_data;
-	///*rt_data.blas_instances_count = &blas_instances_count;
-	//rt_data.blas_instances_size = &blas_instances_size;
-	//rt_data.blas_instances = &blas_instances;*/
-	//rt_data.vertex_data_count = &vertex_data_count;
-	//rt_data.vertex_data_size = &vertex_data_size;
-	//rt_data.vertex_data = &vertex_data;
-	//rt_data.index_data_count = &index_data_count;
-	//rt_data.index_data_size = &index_data_size;
-	//rt_data.index_data = &index_data;
-	//rt_data.geometry_count = &geometry_count;
-	//rt_data.geometry_index_data_size = &geometry_index_data_size;
-	//rt_data.geometry_index_offsets_data = &geometry_index_offsets_data;
-	//rt_data.texture_data_count = &material_data_count;
-	//rt_data.texture_data_size = &material_data_size;
-	//rt_data.texture_data = &material_data;
-
-	//R_FillWorldModelData(rt_data);
-
 	//RT_DrawEntitiesOnList(false);
-
-	/*VkDeviceSize vertex_buffer_offset;
-	size_t vertex_alloc_size = vertex_data_count * sizeof(rt_vertex_t);
-	byte* vertices_data = R_VertexAllocate(vertex_alloc_size, &rt_vertex_buffer, &vertex_buffer_offset);
-	memcpy(vertices_data, vertex_data, vertex_alloc_size);
-
-	VkDeviceSize index_buffer_offset;
-	size_t index_alloc_size = index_data_count * sizeof(uint32_t);
-	byte* indices_data = R_IndexAllocate(index_alloc_size, &rt_index_buffer, &index_buffer_offset);
-	memcpy(indices_data, index_data, index_alloc_size);*/
 
 	TexMgr_LoadActiveTextures();
 
 	int vertex_count = 0;
-	VkDeviceSize vertex_data_size = 4096 * sizeof(rt_vertex_t);
+	VkDeviceSize vertex_data_size = 65536 * sizeof(rt_vertex_t);
 	rt_vertex_t* vertex_data = (rt_vertex_t*)malloc(vertex_data_size);
 
+	int index_count = 0;
+	VkDeviceSize index_data_size = 32768 * sizeof(uint32_t);
+	uint32_t* index_data = (uint32_t*)malloc(index_data_size);
+
 	int model_data_count = 0;
-	VkDeviceSize blas_data_size = 64 * sizeof(rt_blas_data_t);
-	rt_blas_data_t* blas_data_list = (rt_blas_data_t*)malloc(blas_data_size);
+	VkDeviceSize blas_data_size = 1024 * sizeof(rt_blas_data_t);
+	rt_blas_data_t* blas_data = (rt_blas_data_t*)malloc(blas_data_size);
 
-	VkDeviceSize model_data_size = 64 * sizeof(rt_model_data_t);
-	rt_model_data_t* model_data_list = (rt_model_data_t*)malloc(blas_data_size);
+	VkDeviceSize model_shader_data_size = 1024 * sizeof(rt_model_shader_data_t);
+	rt_model_shader_data_t* model_shader_data = (rt_model_shader_data_t*)malloc(blas_data_size);
 
-	R_DrawViewModel(&model_data_count, &vertex_count, &vertex_data, &blas_data_size, &blas_data_list, &model_data_size, &model_data_list);
+	rt_model_data_t model_data;
+	model_data.vertex_count = &vertex_count;
+	model_data.vertex_data = &vertex_data;
+	model_data.index_count = &index_count;
+	model_data.index_data = &index_data;
+	model_data.model_data_count = &model_data_count;
+	model_data.blas_data = &blas_data;
+	model_data.model_shader_data = &model_shader_data;
 
-	BufferResource_t rt_vertex_buffer_resource;
-	buffer_create(&rt_vertex_buffer_resource, vertex_data_size,
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+	R_FillWorldModelData(model_data);
 
-	void* test_data = buffer_map(&rt_vertex_buffer_resource);
-	memcpy(test_data, vertex_data, vertex_data_size);
-	buffer_unmap(&rt_vertex_buffer_resource);
+	R_DrawViewModel(model_data);
 
-	vulkan_globals.rt_vertex_buffer = rt_vertex_buffer_resource.buffer;
+	if (vulkan_globals.rt_vertex_buffer.buffer == NULL) {
+		BufferResource_t rt_vertex_buffer_resource;
+		buffer_create(&rt_vertex_buffer_resource, vertex_data_size,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+		vulkan_globals.rt_vertex_buffer = rt_vertex_buffer_resource;
+	}
+	
+	void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_vertex_buffer);
+	memcpy(vertex_buffer_data, vertex_data, vertex_data_size);
+	buffer_unmap(&vulkan_globals.rt_vertex_buffer);
+
+	if (vulkan_globals.rt_index_buffer.buffer == NULL) {
+		BufferResource_t rt_index_buffer_resource;
+		buffer_create(&rt_index_buffer_resource, index_data_size,
+			VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+		vulkan_globals.rt_index_buffer = rt_index_buffer_resource;
+	}
+	
+	void* index_buffer_data = buffer_map(&vulkan_globals.rt_index_buffer);
+	memcpy(index_buffer_data, index_data, index_data_size);
+	buffer_unmap(&vulkan_globals.rt_index_buffer);
+
+	if (vulkan_globals.rt_model_info_buffer.buffer == NULL) {
+		BufferResource_t rt_model_info_buffer_resource;
+		buffer_create(&rt_model_info_buffer_resource, model_shader_data_size,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+		vulkan_globals.rt_model_info_buffer = rt_model_info_buffer_resource;
+	}
+
+	void* model_info_buffer_data = buffer_map(&vulkan_globals.rt_model_info_buffer);
+	memcpy(model_info_buffer_data, model_shader_data, model_shader_data_size);
+	buffer_unmap(&vulkan_globals.rt_model_info_buffer);
 
 	VkMemoryBarrier memoryBarrier;
 	memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
@@ -1325,23 +1324,15 @@ void R_RenderScene_RTX(void)
 	memoryBarrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
 
 	VkFormat rgb32float = VK_FORMAT_R32G32B32_SFLOAT;
-	//VkFormat rgba8unorm = VK_FORMAT_R8G8B8A8_UNORM;
-
-	//VkIndexType uint32 = VK_INDEX_TYPE_UINT32;
-	VkIndexType uint16 = VK_INDEX_TYPE_UINT16;
-
-	VkBuffer model_data_buffer;
-	VkDeviceSize model_data_device_size;
-	R_VertexAllocate(model_data_size, &model_data_buffer, &model_data_device_size);
-	vulkan_globals.rt_model_info_buffer = model_data_buffer;
+	VkIndexType uint32 = VK_INDEX_TYPE_UINT32;
 
 	for (int i = 0; i < model_data_count; i++) {
-		rt_blas_data_t current_alias_model = blas_data_list[i];
-		R_Create_BLAS_Instance(&blas_instances, i, vulkan_globals.rt_vertex_buffer,
+		rt_blas_data_t current_alias_model = blas_data[i];
+		R_Create_BLAS_Instance(&blas_instances, i, vulkan_globals.rt_vertex_buffer.buffer,
 			current_alias_model.vertex_buffer_offset, current_alias_model.vertex_count,
-			current_alias_model.index_count / 3, sizeof(rt_vertex_t), vulkan_globals.rt_index_buffer,
+			current_alias_model.index_count / 3, sizeof(rt_vertex_t), vulkan_globals.rt_index_buffer.buffer,
 			current_alias_model.index_count, current_alias_model.index_buffer_offset,
-			rgb32float, uint16, current_alias_model.transform_data_buffer);
+			rgb32float, uint32, current_alias_model.transform_data_buffer);
 		vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
 	}
 

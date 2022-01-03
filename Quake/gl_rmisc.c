@@ -1297,7 +1297,8 @@ void R_CreateDescriptorSetLayouts()
 
 	// layout binding texture
 	raygen_layout_bindings[5].binding = 5;
-	raygen_layout_bindings[5].descriptorCount = MAX_GLTEXTURES;
+	//raygen_layout_bindings[5].descriptorCount = MAX_GLTEXTURES;
+	raygen_layout_bindings[5].descriptorCount = 186;
 	raygen_layout_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	raygen_layout_bindings[5].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 
@@ -1335,7 +1336,8 @@ void R_CreateDescriptorPool()
 	pool_sizes[2].type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
 	pool_sizes[2].descriptorCount = 2;
 	pool_sizes[3].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	pool_sizes[3].descriptorCount = MAX_GLTEXTURES;
+	//pool_sizes[3].descriptorCount = MAX_GLTEXTURES;
+	pool_sizes[3].descriptorCount = 186;
 	pool_sizes[4].type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
 	pool_sizes[4].descriptorCount = 1;
 	pool_sizes[5].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
