@@ -184,6 +184,7 @@ typedef struct rt_vertex_s {
 	float vertex_pos[3];
 	float vertex_tx_coords[2];
 	float vertex_fb_coords[2];
+	int	model_shader_data_index;
 } rt_vertex_t;
 
 typedef struct rt_data_s {
@@ -217,28 +218,31 @@ typedef struct rt_blas_data_t {
 	int index_buffer_offset;
 	int index_count;
 
-	int texture_buffer_offset_index;
-	int texture_buffer_fullbright_offset_index;
-
 	VkBuffer transform_data_buffer;
 } rt_blas_data_t;
 
-typedef struct rt_model_shader_data_s {
+typedef struct rt_blas_shader_data_s {
 	int vertex_buffer_offset;
 	int index_buffer_offset;
+} rt_blas_shader_data_t;
+
+typedef struct rt_model_shader_data_s {
 	int texture_buffer_offset_index;
 	int texture_buffer_fullbright_offset_index;
 } rt_model_shader_data_t;
 
 typedef struct rt_model_data_s {
-	int* vertex_count;
+	int static_vertex_count;
+	int* dynamic_vertex_count;
 	rt_vertex_t** vertex_data;
 
 	int* index_count;
 	uint32_t** index_data;
 
-	int* model_data_count;
+	int* blas_count;
+	int* model_count;
 	rt_blas_data_t** blas_data;
+	rt_blas_shader_data_t** blas_shader_data;
 	rt_model_shader_data_t** model_shader_data;
 } rt_model_data_t;
 
@@ -298,11 +302,28 @@ typedef struct
 	// Raygen descriptor set items
 	raygen_desc_set_items_t				raygen_desc_set_items;
 
+	// BLAS
+	accel_struct_t						blas_instance;
+
+	// TLAS
+	accel_struct_t						tlas_instance;
+
+	// Scratch buffer
+	int									scratch_buffer_pointer;
+	BufferResource_t					acceleration_structure_scratch_buffer;
+	
+	int									as_instances_pointer;
+	BufferResource_t					as_instances;
+
 	BufferResource_t					rt_vertex_buffer;
 	BufferResource_t					rt_index_buffer;
 	BufferResource_t					rt_uniform_buffer;
 
 	BufferResource_t					rt_model_info_buffer;
+	BufferResource_t					rt_blas_info_buffer;
+
+	rt_model_data_t						model_data;
+
 	VkImageView*						texture_list;
 	int									texture_list_count;
 
@@ -587,8 +608,8 @@ void R_TranslateNewPlayerSkin(int playernum); //johnfitz -- this handles cases w
 void R_UpdateWarpTextures(void);
 
 void R_DrawWorld(void);
-void R_FillWorldModelData(rt_model_data_t brush_data);
-void R_DrawAliasModel(entity_t* e, rt_model_data_t model_data);
+void R_FillWorldModelData();
+void R_DrawAliasModel(entity_t* e);
 void R_DrawBrushModel(entity_t* e);
 void R_DrawSpriteModel(entity_t* e);
 
@@ -653,7 +674,7 @@ VkResult R_UpdateRaygenDescriptorSet();
 
 // Acceleration structures
 // Creates bottom level acceleration strucuture (BLAS)
-void R_Create_BLAS_Instance(accel_struct_t** blas_instances, int blas_index, VkBuffer vertex_buffer,
+void R_Create_BLAS_Instance(int blas_index, VkBuffer vertex_buffer,
 	uint32_t vertex_offset, uint32_t num_vertices, uint32_t num_triangles, uint32_t stride,
 	VkBuffer index_buffer, uint32_t num_indices, uint32_t index_offset, VkFormat format, VkIndexType index_type, VkBuffer transform_data);
 void R_Create_TLAS();

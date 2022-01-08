@@ -560,12 +560,80 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 	}
 }
 
+
+/*
+================
+R_CreateRTVertexBuffer
+
+Loads world buffer data into vertex buffer
+================
+*/
+void R_CreateRTVertexBuffer() {
+	if(vulkan_globals.rt_vertex_buffer.buffer == NULL){
+
+		VkDeviceSize vertex_data_size = 65536 * sizeof(rt_vertex_t);
+		// Vertex buffer allocation
+		if (vulkan_globals.rt_vertex_buffer.buffer == NULL) {
+			BufferResource_t rt_vertex_buffer_resource;
+			buffer_create(&rt_vertex_buffer_resource, vertex_data_size,
+				VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+			vulkan_globals.rt_vertex_buffer = rt_vertex_buffer_resource;
+		}
+
+		// get buffer memory requirements for bmodel buffer size
+		VkMemoryRequirements memory_requirements;
+		vkGetBufferMemoryRequirements(vulkan_globals.device, bmodel_vertex_buffer, &memory_requirements);
+
+		//map buffer of bmodel vertex buffer and copy data to array
+		void* data;
+		vkMapMemory(vulkan_globals.device, bmodel_memory, 0, memory_requirements.size, 0, &data);
+		vkUnmapMemory(vulkan_globals.device, bmodel_memory);
+
+		float_t* data_cast = (float_t*)data;
+
+		int maxVerts = memory_requirements.size / (sizeof(rt_vertex_t) - sizeof(int));
+
+		rt_vertex_t* vertex_data = (rt_vertex_t*)malloc(maxVerts * sizeof(rt_vertex_t));
+
+		for (int j = 0; j < maxVerts; j++) {
+
+			int offset = j * 7; // size of rt_vertex_t without the model shader data index (float)
+
+			// copy vertex pos
+			vertex_data[j].vertex_pos[0] = data_cast[offset + 0];
+			vertex_data[j].vertex_pos[1] = data_cast[offset + 1];
+			vertex_data[j].vertex_pos[2] = data_cast[offset + 2];
+
+			// copy diffuse texture coords
+			vertex_data[j].vertex_tx_coords[0] = data_cast[offset + 3];
+			vertex_data[j].vertex_tx_coords[1] = data_cast[offset + 4];
+
+			// copy fullbright texture coords
+			vertex_data[j].vertex_fb_coords[0] = data_cast[offset + 5];
+			vertex_data[j].vertex_fb_coords[1] = data_cast[offset + 6];
+
+			// sets model shader data to -1(unused). each consecutive model gets its own index that refers to a shader data entry
+			vertex_data[j].model_shader_data_index = -1;
+		}
+
+		void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_vertex_buffer);
+		memcpy(vertex_buffer_data, vertex_data, maxVerts * sizeof(rt_vertex_t));
+		buffer_unmap(&vulkan_globals.rt_vertex_buffer);
+
+		vulkan_globals.model_data.static_vertex_count = maxVerts;
+
+		free(vertex_data);
+	}
+}
+
 /*
 ================
 R_GetBrushModelData_RTX
 ================
 */
-void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, const float alpha, rt_model_data_t model_data)
+void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, const float alpha)
 {
 	int			i;
 	msurface_t* s;
@@ -578,26 +646,21 @@ void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, c
 	gltexture_t* fullbright = NULL;
 	int index_count = 0;
 
-	rt_blas_data_t blas_data;
+	//int vertex_count_offset = vulkan_globals.model_data.static_vertex_count;
+	//int vertex_count_offset = 0;
+	//int index_count_offset = vulkan_globals.model_data.index_count[0];
+
+	void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_vertex_buffer);
+	rt_vertex_t* vertex_data_pointer = (rt_vertex_t*)vertex_buffer_data;
+	buffer_unmap(&vulkan_globals.rt_vertex_buffer);
+
+	/*rt_blas_data_t blas_data;
+	rt_blas_shader_data_t blas_shader_data;*/
 	rt_model_shader_data_t model_shader_data;
-
-	// get buffer memory requirements for bmodel buffer size
-	VkMemoryRequirements memory_requirements;
-	vkGetBufferMemoryRequirements(vulkan_globals.device, bmodel_vertex_buffer, &memory_requirements);
-
-	//map buffer of bmodel vertex buffer and copy data to array
-	void* data;
-	vkMapMemory(vulkan_globals.device, bmodel_memory, 0, memory_requirements.size, 0, &data);
-	rt_vertex_t* data_cast = (rt_vertex_t*)data;
-
-	rt_vertex_t* vertex_data_pointer = *model_data.vertex_data;
-	memcpy(vertex_data_pointer, data_cast, memory_requirements.size);
-	vkUnmapMemory(vulkan_globals.device, bmodel_memory);
 	
-	//for (i = 0; i < model->numtextures; ++i)
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < model->numtextures; ++i)
+	//for (i = 0; i < 2; ++i)
 	{
-
 		t = model->textures[i];
 
 		if (!t || !t->texturechains[chain] || t->texturechains[chain]->flags & (SURF_DRAWTILED | SURF_NOTEXTURE))
@@ -641,42 +704,51 @@ void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, c
 
 				num_surf_indices = R_NumTriangleIndicesForSurf(s);
 
-				R_TriangleAndTextureIndicesForSurf(s, *model_data.index_data, model_data.index_count[0] + index_count);	// cumulative index count of previous models (offset) + current index_count
+				R_TriangleAndTextureIndicesForSurf(s, *vulkan_globals.model_data.index_data, index_count);	// cumulative index count of previous models (offset) + current index_count
 				index_count += num_surf_indices;
 			}
 
 			rs_brushpasses++;
 		}
 
-		// assigning blas_data
-		blas_data.vertex_buffer_offset = model_data.vertex_count[0] * sizeof(rt_vertex_t);
-		blas_data.vertex_count = 26930;
-		//blas_data.vertex_count = memory_requirements.size / sizeof(rt_vertex_t);	// technically incorrect because it does not account for the alignement that has been done
-		blas_data.index_buffer_offset = model_data.index_count[0] * sizeof(uint32_t);
-		blas_data.index_count = index_count;
-		blas_data.texture_buffer_offset_index = tx_imageview_index;
-		blas_data.texture_buffer_fullbright_offset_index = fb_imageview_index;
-		blas_data.transform_data_buffer = NULL;
 
-		model_shader_data.vertex_buffer_offset = model_data.vertex_count[0];
-		model_shader_data.index_buffer_offset = model_data.index_count[0];
+		uint32_t* vertex_index = *vulkan_globals.model_data.index_data;
+
+		for (int j = vulkan_globals.model_data.index_count[0]; j < index_count; j++) {
+			vertex_data_pointer[vertex_index[j]].model_shader_data_index = vulkan_globals.model_data.model_count[0];
+		}
+
 		model_shader_data.texture_buffer_offset_index = tx_imageview_index;
 		model_shader_data.texture_buffer_fullbright_offset_index = fb_imageview_index;
 
-		*model_data.index_count += index_count;
-		index_count = 0;
+		*vulkan_globals.model_data.index_count = index_count;
 
-		rt_blas_data_t* blas_data_pointer = *model_data.blas_data;
-		blas_data_pointer[model_data.model_data_count[0]] = blas_data;
-
-		rt_model_shader_data_t* model_data_pointer = *model_data.model_shader_data;
-		model_data_pointer[model_data.model_data_count[0]] = model_shader_data;
-
-		*model_data.model_data_count += 1;
+		rt_model_shader_data_t* model_data_pointer = *vulkan_globals.model_data.model_shader_data;
+		model_data_pointer[vulkan_globals.model_data.model_count[0]] = model_shader_data;
+		*vulkan_globals.model_data.model_count += 1;
 	}
 
+	//// assigning blas_data
+	//blas_data.vertex_buffer_offset = vertex_count_offset * sizeof(rt_vertex_t);
+	////blas_data.vertex_count = memory_requirements.size / sizeof(rt_vertex_t);	// technically incorrect because it does not account for the alignement that has been done
+	//blas_data.index_buffer_offset = index_count_offset * sizeof(uint32_t);
+	//blas_data.transform_data_buffer = NULL;
+
+	//blas_shader_data.vertex_buffer_offset = vertex_count_offset;
+	//blas_shader_data.index_buffer_offset = index_count_offset;
+
+	//blas_data.vertex_count = vulkan_globals.model_data.static_vertex_count + vulkan_globals.model_data.dynamic_vertex_count[0];
+	//blas_data.index_count = vulkan_globals.model_data.index_count[0];
+
+	//rt_blas_data_t* blas_data_pointer = *vulkan_globals.model_data.blas_data;
+	//blas_data_pointer[vulkan_globals.model_data.blas_count[0]] = blas_data;
+
+	//rt_blas_shader_data_t* blas_shader_data_pointer = *vulkan_globals.model_data.blas_shader_data;
+	//blas_shader_data_pointer[vulkan_globals.model_data.blas_count[0]] = blas_shader_data;
+
+	//*vulkan_globals.model_data.blas_count += 1;
+
 	num_vbo_indices = 0;
-	*model_data.vertex_count += 26930;
 }
 
 /*
@@ -798,12 +870,13 @@ void R_DrawWorld (void)
 R_FillWorldModelData -- russeln -- return model data (vertex, index and texture buffer) from brush model in correct format (rt_vertex_s)
 =============
 */
-void R_FillWorldModelData(rt_model_data_t model_data) {
+void R_FillWorldModelData() {
 	if (!r_drawworld_cheatsafe)
 		return;
 
 	R_BeginDebugUtilsLabel("World BLAS");
-	R_GetBrushModelData_RTX(cl.worldmodel, NULL, chain_world, 1, model_data);
+	R_CreateRTVertexBuffer();
+	R_GetBrushModelData_RTX(cl.worldmodel, NULL, chain_world, 1);
 	R_EndDebugUtilsLabel();
 }
 

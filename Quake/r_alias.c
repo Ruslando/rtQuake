@@ -25,6 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "gl_heap.h"
+#include "time.h"
 
 extern cvar_t r_drawflat, gl_fullbrights, r_lerpmodels, r_lerpmove, r_showtris; //johnfitz
 extern cvar_t scr_fov, cl_gun_fovscale;
@@ -584,7 +585,7 @@ void R_SetupAliasLighting (entity_t	*e)
 R_DrawAliasModel -- johnfitz -- almost completely rewritten
 =================
 */
-void R_DrawAliasModel (entity_t *e, rt_model_data_t model_data) //(entity_t *e, qboolean rt)
+void R_DrawAliasModel (entity_t *e) //(entity_t *e, qboolean rt)
 {
 	aliashdr_t	*paliashdr;
 	int			i, anim, skinnum;
@@ -694,49 +695,72 @@ void R_DrawAliasModel (entity_t *e, rt_model_data_t model_data) //(entity_t *e, 
 
 	// animation vertex offset
 	VkDeviceSize animation_vertex_offset = GLARB_GetXYZOffset(paliashdr, lerpdata.pose2);
+	animation_vertex_offset;
 
 	void* vdata;
 	vkMapMemory(vulkan_globals.device, vertex_heapmemory, vertex_heapnode->offset, vertex_heapnode->size, 0, &vdata);
 	vkUnmapMemory(vulkan_globals.device, vertex_heapmemory);
 	unsigned char* vdatacast = (unsigned char*)vdata;
+	vdatacast;
 
-	int maxVerts = model_data.vertex_count[0] + paliashdr->numverts_vbo;
-	for (int j = model_data.vertex_count[0]; j < maxVerts; j++) {
+	rt_vertex_t* vertex_data_pointer = *vulkan_globals.model_data.vertex_data;
+	int vbostofs = currententity->model->vbostofs;
 
-		rt_vertex_t* vertex_data_pointer = *model_data.vertex_data;
+	int maxVerts = vulkan_globals.model_data.dynamic_vertex_count[0] + paliashdr->numverts_vbo;
+	int current_model_count = vulkan_globals.model_data.model_count[0];
+	char_to_float_convert_t tx_float1;
+	char_to_float_convert_t tx_float2;
 
-		char_to_float_convert_t tx_float1;
-		char_to_float_convert_t tx_float2;
+	rt_vertex_t rt_vertex;
 
-		int offset = (j + (maxVerts - model_data.vertex_count[0]) - maxVerts) * sizeof(float) * 2;
-		
+	clock_t start = clock();
+	
+	for (int j = vulkan_globals.model_data.dynamic_vertex_count[0]; j < maxVerts; j++) {
+		int offset = (j + (maxVerts - vulkan_globals.model_data.dynamic_vertex_count[0]) - maxVerts) * sizeof(float) * 2;
+
+		int posoffset = animation_vertex_offset + offset;
+		int txoffset = vbostofs + offset;
+
 		// Vertex position
-		vertex_data_pointer[j].vertex_pos[0] = (float)vdatacast[animation_vertex_offset + offset + 0] / 255;
-		vertex_data_pointer[j].vertex_pos[1] = (float)vdatacast[animation_vertex_offset + offset + 1] / 255;
-		vertex_data_pointer[j].vertex_pos[2] = (float)vdatacast[animation_vertex_offset + offset + 2] / 255;
+		float vertex[16];
+		vertex[0] = (float)vdatacast[posoffset + 0] / 255;
+		vertex[1] = (float)vdatacast[posoffset + 1] / 255;
+		vertex[2] = (float)vdatacast[posoffset + 2] / 255;
+		vertex[3] = 1;
+
+		float matrix_copy[16];
+		memcpy(matrix_copy, model_matrix, 16 * sizeof(float));
+		MatrixMultiply(matrix_copy, vertex);
+
+		vertex_data_pointer[j].vertex_pos[0] = matrix_copy[0];
+		vertex_data_pointer[j].vertex_pos[1] = matrix_copy[1];
+		vertex_data_pointer[j].vertex_pos[2] = matrix_copy[2];
+
+		rt_vertex.vertex_pos[0] = matrix_copy[0];
+		rt_vertex.vertex_pos[1] = matrix_copy[1];
+		rt_vertex.vertex_pos[2] = matrix_copy[2];
+
+		unsigned char* tx1 = tx_float1.byte;
+		*tx1++ = vdatacast[txoffset + 0]; *tx1++ = vdatacast[txoffset + 1];
+		*tx1++ = vdatacast[txoffset + 2]; *tx1++ = vdatacast[txoffset + 3];
+
+		unsigned char* tx2 = tx_float2.byte;
+		*tx2++ = vdatacast[txoffset + 4]; *tx2++ = vdatacast[txoffset + 5];
+		*tx2++ = vdatacast[txoffset + 6]; *tx2++ = vdatacast[txoffset + 7];
 
 		// Vertex texture coordinates (char arrays are converted to float values)
-		tx_float1.byte[0] = vdatacast[currententity->model->vbostofs + (offset + 0)];
-		tx_float1.byte[1] = vdatacast[currententity->model->vbostofs + (offset + 1)];
-		tx_float1.byte[2] = vdatacast[currententity->model->vbostofs + (offset + 2)];
-		tx_float1.byte[3] = vdatacast[currententity->model->vbostofs + (offset + 3)];
-
-		tx_float2.byte[0] = vdatacast[currententity->model->vbostofs + (offset + 4)];
-		tx_float2.byte[1] = vdatacast[currententity->model->vbostofs + (offset + 5)];
-		tx_float2.byte[2] = vdatacast[currententity->model->vbostofs + (offset + 6)];
-		tx_float2.byte[3] = vdatacast[currententity->model->vbostofs + (offset + 7)];
-
-		float txr1 = tx_float1.real;
-		float txr2 = tx_float2.real;
-		txr1;
-		txr2;
-
 		vertex_data_pointer[j].vertex_tx_coords[0] = tx_float1.real;
 		vertex_data_pointer[j].vertex_tx_coords[1] = tx_float2.real;
 
 		vertex_data_pointer[j].vertex_fb_coords[0] = tx_float1.real;
 		vertex_data_pointer[j].vertex_fb_coords[1] = tx_float2.real;
+
+		vertex_data_pointer[j].model_shader_data_index = current_model_count;
 	}
+
+	clock_t end = clock();
+	float seconds = (float)(end - start) / CLOCKS_PER_SEC;
+	seconds;
 
 	// Collects index data
 	VkDeviceMemory index_heapmemory = currententity->model->index_heap->memory;
@@ -747,36 +771,13 @@ void R_DrawAliasModel (entity_t *e, rt_model_data_t model_data) //(entity_t *e, 
 	vkUnmapMemory(vulkan_globals.device, index_heapmemory);
 	uint16_t* idatacast = (uint16_t*)idata;
 
-	uint32_t* index_data_pointer = *model_data.index_data;
+	uint32_t* index_data_pointer = *vulkan_globals.model_data.index_data;
 
-	int maxIndex = model_data.index_count[0] + paliashdr->numindexes;
-	for (int j = model_data.index_count[0]; j < maxIndex; j++) {
-		int offset = (j + (maxIndex - model_data.index_count[0]) - maxIndex);
-		index_data_pointer[j] = (uint32_t)idatacast[offset];
+	int maxIndex = vulkan_globals.model_data.index_count[0] + paliashdr->numindexes;
+	for (int j = vulkan_globals.model_data.index_count[0]; j < maxIndex; j++) {
+		int offset = (j + (maxIndex - vulkan_globals.model_data.index_count[0]) - maxIndex);
+		index_data_pointer[j] = (uint32_t)idatacast[offset] + vulkan_globals.model_data.static_vertex_count + vulkan_globals.model_data.dynamic_vertex_count[0];
 	}
-
-	// blas transformation matrix
-	VkTransformMatrixKHR transform;
-	memset(&transform, 0, sizeof(VkTransformMatrixKHR));
-	transform.matrix[0][0] = model_matrix[0];
-	transform.matrix[0][1] = model_matrix[4];
-	transform.matrix[0][2] = model_matrix[8];
-	transform.matrix[0][3] = model_matrix[12];
-
-	transform.matrix[1][0] = model_matrix[1];
-	transform.matrix[1][1] = model_matrix[5];
-	transform.matrix[1][2] = model_matrix[9];
-	transform.matrix[1][3] = model_matrix[13];
-
-	transform.matrix[2][0] = model_matrix[2];
-	transform.matrix[2][1] = model_matrix[6];
-	transform.matrix[2][2] = model_matrix[10];
-	transform.matrix[2][3] = model_matrix[14];
-
-	VkBuffer transform_buffer;
-	VkDeviceSize transform_buffer_offset;
-	void* transform_data = R_VertexAllocate(sizeof(VkTransformMatrixKHR), &transform_buffer, &transform_buffer_offset);
-	memcpy(transform_data, &transform, sizeof(VkTransformMatrixKHR));
 
 	//calculating texture index
 	int tx_imageview_index = -1;
@@ -800,32 +801,44 @@ void R_DrawAliasModel (entity_t *e, rt_model_data_t model_data) //(entity_t *e, 
 		}
 	}
 
-	rt_blas_data_t data = {
-		.vertex_buffer_offset = model_data.vertex_count[0] * sizeof(rt_vertex_t),
-		.vertex_count = paliashdr->numverts_vbo,
-		.index_buffer_offset = model_data.index_count[0] * sizeof(uint32_t),
-		.index_count = paliashdr->numindexes,
-		.texture_buffer_offset_index = tx_imageview_index,
-		.texture_buffer_fullbright_offset_index = fb_imageview_index,
-		.transform_data_buffer = transform_buffer
+	/*rt_blas_shader_data_t blas_shader_data = {
+		.vertex_buffer_offset = (vulkan_globals.model_data.static_vertex_count + vulkan_globals.model_data.dynamic_vertex_count[0]),
+		.index_buffer_offset = vulkan_globals.model_data.index_count[0]
+	};*/
+
+	rt_blas_shader_data_t blas_shader_data = {
+		.vertex_buffer_offset = 0,
+		.index_buffer_offset = 0
 	};
 
+	//rt_blas_data_t data = {
+	//	.vertex_buffer_offset = (vulkan_globals.model_data.static_vertex_count + vulkan_globals.model_data.dynamic_vertex_count[0]) * sizeof(rt_vertex_t),
+	//	.vertex_count = paliashdr->numverts_vbo,
+	//	.index_buffer_offset = vulkan_globals.model_data.index_count[0] * sizeof(uint32_t),
+	//	.index_count = paliashdr->numindexes,
+	//	.transform_data_buffer = NULL	// TODO: delete eventually
+	//};
+
 	rt_model_shader_data_t model_shader_data = {
-		.vertex_buffer_offset = model_data.vertex_count[0],	// shader data does not need byte offset, it adds the size of the struct by itself
-		.index_buffer_offset = model_data.index_count[0],
 		.texture_buffer_offset_index = tx_imageview_index,
 		.texture_buffer_fullbright_offset_index = fb_imageview_index
 	};
 
-	rt_blas_data_t* blas_data_pointer = *model_data.blas_data;
-	blas_data_pointer[model_data.model_data_count[0]] = data;
+	// TODO: Create blas for multiple alias models.
+	// commented out to have only one blas instance
+	/*rt_blas_data_t* blas_data_pointer = *vulkan_globals.model_data.blas_data;
+	blas_data_pointer[vulkan_globals.model_data.blas_count[0]] = data;*/
 
-	rt_model_shader_data_t* model_data_pointer = *model_data.model_shader_data;
-	model_data_pointer[model_data.model_data_count[0]] = model_shader_data;
+	rt_blas_shader_data_t* blas_shader_data_pointer = *vulkan_globals.model_data.blas_shader_data;
+	blas_shader_data_pointer[vulkan_globals.model_data.blas_count[0]] = blas_shader_data;
 
-	*model_data.model_data_count += 1;
-	*model_data.vertex_count += paliashdr->numverts_vbo;
-	*model_data.index_count += paliashdr->numindexes;
+	rt_model_shader_data_t* model_data_pointer = *vulkan_globals.model_data.model_shader_data;
+	model_data_pointer[vulkan_globals.model_data.model_count[0]] = model_shader_data;
+
+	*vulkan_globals.model_data.model_count += 1;
+	//*vulkan_globals.model_data.blas_count += 1;
+	*vulkan_globals.model_data.dynamic_vertex_count += paliashdr->numverts_vbo;
+	*vulkan_globals.model_data.index_count += paliashdr->numindexes;
 	
 }
 
