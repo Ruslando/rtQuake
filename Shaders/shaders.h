@@ -71,6 +71,8 @@ extern unsigned char gen_ray_spv[];
 extern int gen_ray_spv_size;
 extern unsigned char miss_ray_spv[];
 extern int miss_ray_spv_size;
+extern unsigned char shadow_miss_ray_spv[];
+extern int shadow_miss_ray_spv_size;
 extern unsigned char hit_ray_spv[];
 extern int hit_ray_spv_size;
 

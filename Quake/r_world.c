@@ -644,7 +644,7 @@ void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, c
 	//qboolean	alpha_blend = alpha < 1.0f;
 	//qboolean	use_zbias = (gl_zfix.value && model != cl.worldmodel);
 	gltexture_t* fullbright = NULL;
-	int index_count = 0;
+	int index_count = vulkan_globals.model_data.index_count[0];
 
 	//int vertex_count_offset = vulkan_globals.model_data.static_vertex_count;
 	//int vertex_count_offset = 0;
@@ -659,7 +659,6 @@ void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, c
 	rt_model_shader_data_t model_shader_data;
 	
 	for (i = 0; i < model->numtextures; ++i)
-	//for (i = 0; i < 2; ++i)
 	{
 		t = model->textures[i];
 
@@ -727,26 +726,6 @@ void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, c
 		model_data_pointer[vulkan_globals.model_data.model_count[0]] = model_shader_data;
 		*vulkan_globals.model_data.model_count += 1;
 	}
-
-	//// assigning blas_data
-	//blas_data.vertex_buffer_offset = vertex_count_offset * sizeof(rt_vertex_t);
-	////blas_data.vertex_count = memory_requirements.size / sizeof(rt_vertex_t);	// technically incorrect because it does not account for the alignement that has been done
-	//blas_data.index_buffer_offset = index_count_offset * sizeof(uint32_t);
-	//blas_data.transform_data_buffer = NULL;
-
-	//blas_shader_data.vertex_buffer_offset = vertex_count_offset;
-	//blas_shader_data.index_buffer_offset = index_count_offset;
-
-	//blas_data.vertex_count = vulkan_globals.model_data.static_vertex_count + vulkan_globals.model_data.dynamic_vertex_count[0];
-	//blas_data.index_count = vulkan_globals.model_data.index_count[0];
-
-	//rt_blas_data_t* blas_data_pointer = *vulkan_globals.model_data.blas_data;
-	//blas_data_pointer[vulkan_globals.model_data.blas_count[0]] = blas_data;
-
-	//rt_blas_shader_data_t* blas_shader_data_pointer = *vulkan_globals.model_data.blas_shader_data;
-	//blas_shader_data_pointer[vulkan_globals.model_data.blas_count[0]] = blas_shader_data;
-
-	//*vulkan_globals.model_data.blas_count += 1;
 
 	num_vbo_indices = 0;
 }
@@ -829,6 +808,23 @@ void R_DrawTextureChains_Multitexture (qmodel_t *model, entity_t *ent, texchain_
 
 		R_FlushBatch (fullbright_enabled, alpha_test, alpha_blend, use_zbias, lightmap_texture);
 	}
+}
+
+/*
+=============
+R_DrawWorld -- johnfitz -- rewritten
+=============
+*/
+void R_DrawTextureChains_RTX(qmodel_t* model, entity_t* ent, texchain_t chain)
+{
+	float entalpha;
+
+	if (ent != NULL)
+		entalpha = ENTALPHA_DECODE(ent->alpha);
+	else
+		entalpha = 1;
+
+	R_GetBrushModelData_RTX(model, ent, chain, entalpha);
 }
 
 /*

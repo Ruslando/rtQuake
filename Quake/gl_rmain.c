@@ -1017,7 +1017,21 @@ VkResult R_UpdateRaygenDescriptorSet()
 	blasInfoBufferInfo.offset = 0;
 	blasInfoBufferInfo.range = VK_WHOLE_SIZE;
 
-	VkWriteDescriptorSet raygen_writes[8];
+	// storage buffer (light info)
+	VkDescriptorBufferInfo lightEntitiesBufferInfo;
+	memset(&lightEntitiesBufferInfo, 0, sizeof(VkDescriptorBufferInfo));
+	lightEntitiesBufferInfo.buffer = vulkan_globals.rt_light_entities_buffer.buffer;
+	lightEntitiesBufferInfo.offset = 0;
+	lightEntitiesBufferInfo.range = VK_WHOLE_SIZE;
+
+	// uniform buffer (light entities index list)
+	VkDescriptorBufferInfo lightEntitiesIndexListBufferInfo;
+	memset(&lightEntitiesIndexListBufferInfo, 0, sizeof(VkDescriptorBufferInfo));
+	lightEntitiesIndexListBufferInfo.buffer = vulkan_globals.rt_light_entities_list_buffer.buffer;
+	lightEntitiesIndexListBufferInfo.offset = 0;
+	lightEntitiesIndexListBufferInfo.range = VK_WHOLE_SIZE;
+
+	VkWriteDescriptorSet raygen_writes[10];
 	memset(&raygen_writes, 0, sizeof(raygen_writes));
 	raygen_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	raygen_writes[0].pNext = &desc_accel_struct;
@@ -1075,7 +1089,21 @@ VkResult R_UpdateRaygenDescriptorSet()
 	raygen_writes[7].dstSet = vulkan_globals.raygen_desc_set;
 	raygen_writes[7].pBufferInfo = &blasInfoBufferInfo;
 
-	vkUpdateDescriptorSets(vulkan_globals.device, 8, raygen_writes, 0, NULL);
+	raygen_writes[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[8].dstBinding = 8;
+	raygen_writes[8].descriptorCount = 1;
+	raygen_writes[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_writes[8].dstSet = vulkan_globals.raygen_desc_set;
+	raygen_writes[8].pBufferInfo = &lightEntitiesBufferInfo;
+
+	raygen_writes[9].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[9].dstBinding = 9;
+	raygen_writes[9].descriptorCount = 1;
+	raygen_writes[9].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	raygen_writes[9].dstSet = vulkan_globals.raygen_desc_set;
+	raygen_writes[9].pBufferInfo = &lightEntitiesIndexListBufferInfo;
+
+	vkUpdateDescriptorSets(vulkan_globals.device, 10, raygen_writes, 0, NULL);
 
 	free(texture_image_infos);
 
@@ -1259,6 +1287,7 @@ void R_RenderScene_RTX(void)
 
 	R_SetupCameraMatrices_RTX();
 	TexMgr_LoadActiveTextures();
+	R_CreateLightEntitiesList(cl.viewent.origin);
 
 	if (vulkan_globals.acceleration_structure_scratch_buffer.buffer == NULL) {
 		// for the beginning just allocate 131072 bytes of storage, its just a random size.

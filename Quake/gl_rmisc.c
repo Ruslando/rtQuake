@@ -1262,7 +1262,7 @@ void R_CreateDescriptorSetLayouts()
 	if (err != VK_SUCCESS)
 		Sys_Error("vkCreateDescriptorSetLayout failed");
 
-	VkDescriptorSetLayoutBinding raygen_layout_bindings[8];
+	VkDescriptorSetLayoutBinding raygen_layout_bindings[10];
 	memset(&raygen_layout_bindings, 0, sizeof(raygen_layout_bindings));
 
 	//layout binding acceleration structure
@@ -1314,7 +1314,19 @@ void R_CreateDescriptorSetLayouts()
 	raygen_layout_bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	raygen_layout_bindings[7].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 
-	descriptor_set_layout_create_info.bindingCount = 8;
+	//layout binding light entities buffer
+	raygen_layout_bindings[8].binding = 8;
+	raygen_layout_bindings[8].descriptorCount = 1;
+	raygen_layout_bindings[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_layout_bindings[8].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+	//layout binding uniform buffer light entities list
+	raygen_layout_bindings[9].binding = 9;
+	raygen_layout_bindings[9].descriptorCount = 1;
+	raygen_layout_bindings[9].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	raygen_layout_bindings[9].stageFlags =  VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+	descriptor_set_layout_create_info.bindingCount = 10;
 	descriptor_set_layout_create_info.pBindings = raygen_layout_bindings;
 
 	memset(&vulkan_globals.raygen_set_layout, 0, sizeof(vulkan_globals.raygen_set_layout));
@@ -1349,7 +1361,7 @@ void R_CreateDescriptorPool()
 	pool_sizes[5].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	pool_sizes[5].descriptorCount = 2;
 	pool_sizes[6].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	pool_sizes[6].descriptorCount = 4;
+	pool_sizes[6].descriptorCount = 5;
 
 	VkDescriptorPoolCreateInfo descriptor_pool_create_info;
 	memset(&descriptor_pool_create_info, 0, sizeof(descriptor_pool_create_info));
@@ -1772,6 +1784,7 @@ void R_CreatePipelines()
 	CREATE_SHADER_MODULE(gen_ray);
 	CREATE_SHADER_MODULE(hit_ray);
 	CREATE_SHADER_MODULE(miss_ray);
+	CREATE_SHADER_MODULE(shadow_miss_ray);
 
 	VkPipelineDynamicStateCreateInfo dynamic_state_create_info;
 	memset(&dynamic_state_create_info, 0, sizeof(dynamic_state_create_info));
@@ -2631,35 +2644,8 @@ void R_CreatePipelines()
 	//GET_DEVICE_PROC_ADDR(CreateRayTracingPipelinesKHR);
 	//GET_DEVICE_PROC_ADDR(GetRayTracingShaderGroupHandlesKHR);
 
-	//VkPipelineShaderStageCreateInfo rt_shader_stages[4];
-	//memset(&rt_shader_stages, 0, 4 * sizeof(VkPipelineShaderStageCreateInfo));
-
-	//// Ray generation
-	//rt_shader_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	//rt_shader_stages[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
-	//rt_shader_stages[0].module = gen_ray_module;
-	//rt_shader_stages[0].pName = "main";
-
-	//// Ray miss 
-	//rt_shader_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	//rt_shader_stages[1].stage = VK_SHADER_STAGE_MISS_BIT_KHR;
-	//rt_shader_stages[1].module = miss_ray_module;
-	//rt_shader_stages[1].pName = "main";
-
-	//// Ray miss second invocation
-	//rt_shader_stages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	//rt_shader_stages[2].stage = VK_SHADER_STAGE_MISS_BIT_KHR;
-	//rt_shader_stages[2].module = miss_ray_module;
-	//rt_shader_stages[2].pName = "main";
-
-	//// Ray hit
-	//rt_shader_stages[3].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	//rt_shader_stages[3].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
-	//rt_shader_stages[3].module = hit_ray_module;
-	//rt_shader_stages[3].pName = "main";
-
-	VkPipelineShaderStageCreateInfo rt_shader_stages[3];
-	memset(&rt_shader_stages, 0, 3 * sizeof(VkPipelineShaderStageCreateInfo));
+	VkPipelineShaderStageCreateInfo rt_shader_stages[4];
+	memset(&rt_shader_stages, 0, 4 * sizeof(VkPipelineShaderStageCreateInfo));
 
 	// Ray generation
 	rt_shader_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -2673,51 +2659,41 @@ void R_CreatePipelines()
 	rt_shader_stages[1].module = miss_ray_module;
 	rt_shader_stages[1].pName = "main";
 
-	// Ray hit
+	// Ray shadow miss
 	rt_shader_stages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	rt_shader_stages[2].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
-	rt_shader_stages[2].module = hit_ray_module;
+	rt_shader_stages[2].stage = VK_SHADER_STAGE_MISS_BIT_KHR;
+	rt_shader_stages[2].module = shadow_miss_ray_module;
 	rt_shader_stages[2].pName = "main";
 
+	// Ray hit
+	rt_shader_stages[3].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	rt_shader_stages[3].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+	rt_shader_stages[3].module = hit_ray_module;
+	rt_shader_stages[3].pName = "main";
 
+	//VkPipelineShaderStageCreateInfo rt_shader_stages[3];
+	//memset(&rt_shader_stages, 0, 3 * sizeof(VkPipelineShaderStageCreateInfo));
 
-	//VkRayTracingShaderGroupCreateInfoKHR rt_shader_group_info[4];
-	//memset(&rt_shader_group_info, 0, 4 * sizeof(VkRayTracingShaderGroupCreateInfoKHR));
+	//// Ray generation
+	//rt_shader_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	//rt_shader_stages[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+	//rt_shader_stages[0].module = gen_ray_module;
+	//rt_shader_stages[0].pName = "main";
 
-	//// ray generation shader
-	//rt_shader_group_info[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-	//rt_shader_group_info[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-	//rt_shader_group_info[0].generalShader = 0;	// index of ray gen shader in pipeline shader stage
-	//rt_shader_group_info[0].anyHitShader = VK_SHADER_UNUSED_KHR;
-	//rt_shader_group_info[0].closestHitShader = VK_SHADER_UNUSED_KHR;
-	//rt_shader_group_info[0].intersectionShader = VK_SHADER_UNUSED_KHR;
+	//// Ray miss 
+	//rt_shader_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	//rt_shader_stages[1].stage = VK_SHADER_STAGE_MISS_BIT_KHR;
+	//rt_shader_stages[1].module = miss_ray_module;
+	//rt_shader_stages[1].pName = "main";
 
-	//// rt miss shader
-	//rt_shader_group_info[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-	//rt_shader_group_info[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-	//rt_shader_group_info[1].generalShader = 1;	// index of rt miss shader in pipeline shader stage
-	//rt_shader_group_info[1].anyHitShader = VK_SHADER_UNUSED_KHR;
-	//rt_shader_group_info[1].closestHitShader = VK_SHADER_UNUSED_KHR;
-	//rt_shader_group_info[1].intersectionShader = VK_SHADER_UNUSED_KHR;
+	//// Ray hit
+	//rt_shader_stages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	//rt_shader_stages[2].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+	//rt_shader_stages[2].module = hit_ray_module;
+	//rt_shader_stages[2].pName = "main";
 
-	//// rt miss shadow shader
-	//rt_shader_group_info[2].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-	//rt_shader_group_info[2].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-	//rt_shader_group_info[2].generalShader = 2;	// index of rt miss shader in pipeline shader stage
-	//rt_shader_group_info[2].anyHitShader = VK_SHADER_UNUSED_KHR;
-	//rt_shader_group_info[2].closestHitShader = VK_SHADER_UNUSED_KHR;
-	//rt_shader_group_info[2].intersectionShader = VK_SHADER_UNUSED_KHR;
-
-	//// rt closest hit shader
-	//rt_shader_group_info[3].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-	//rt_shader_group_info[3].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
-	//rt_shader_group_info[3].generalShader = VK_SHADER_UNUSED_KHR;
-	//rt_shader_group_info[3].anyHitShader = VK_SHADER_UNUSED_KHR;
-	//rt_shader_group_info[3].closestHitShader = 3; // index of rt hit shader in pipeline shader stage, index 2 is second miss shader
-	//rt_shader_group_info[3].intersectionShader = VK_SHADER_UNUSED_KHR;
-
-	VkRayTracingShaderGroupCreateInfoKHR rt_shader_group_info[3];
-	memset(&rt_shader_group_info, 0, 3 * sizeof(VkRayTracingShaderGroupCreateInfoKHR));
+	VkRayTracingShaderGroupCreateInfoKHR rt_shader_group_info[4];
+	memset(&rt_shader_group_info, 0, 4 * sizeof(VkRayTracingShaderGroupCreateInfoKHR));
 
 	// ray generation shader
 	rt_shader_group_info[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
@@ -2735,24 +2711,59 @@ void R_CreatePipelines()
 	rt_shader_group_info[1].closestHitShader = VK_SHADER_UNUSED_KHR;
 	rt_shader_group_info[1].intersectionShader = VK_SHADER_UNUSED_KHR;
 
-	// rt closest hit shader
+	// rt miss shadow shader
 	rt_shader_group_info[2].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-	rt_shader_group_info[2].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
-	rt_shader_group_info[2].generalShader = VK_SHADER_UNUSED_KHR;
+	rt_shader_group_info[2].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+	rt_shader_group_info[2].generalShader = 2;	// index of rt miss shader in pipeline shader stage
 	rt_shader_group_info[2].anyHitShader = VK_SHADER_UNUSED_KHR;
-	rt_shader_group_info[2].closestHitShader = 2; // index of rt hit shader in pipeline shader stage, index 2 is second miss shader
+	rt_shader_group_info[2].closestHitShader = VK_SHADER_UNUSED_KHR;
 	rt_shader_group_info[2].intersectionShader = VK_SHADER_UNUSED_KHR;
+
+	// rt closest hit shader
+	rt_shader_group_info[3].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+	rt_shader_group_info[3].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+	rt_shader_group_info[3].generalShader = VK_SHADER_UNUSED_KHR;
+	rt_shader_group_info[3].anyHitShader = VK_SHADER_UNUSED_KHR;
+	rt_shader_group_info[3].closestHitShader = 3; // index of rt hit shader in pipeline shader stage, index 2 is second miss shader
+	rt_shader_group_info[3].intersectionShader = VK_SHADER_UNUSED_KHR;
+
+	//VkRayTracingShaderGroupCreateInfoKHR rt_shader_group_info[3];
+	//memset(&rt_shader_group_info, 0, 3 * sizeof(VkRayTracingShaderGroupCreateInfoKHR));
+
+	//// ray generation shader
+	//rt_shader_group_info[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+	//rt_shader_group_info[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+	//rt_shader_group_info[0].generalShader = 0;	// index of ray gen shader in pipeline shader stage
+	//rt_shader_group_info[0].anyHitShader = VK_SHADER_UNUSED_KHR;
+	//rt_shader_group_info[0].closestHitShader = VK_SHADER_UNUSED_KHR;
+	//rt_shader_group_info[0].intersectionShader = VK_SHADER_UNUSED_KHR;
+
+	//// rt miss shader
+	//rt_shader_group_info[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+	//rt_shader_group_info[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+	//rt_shader_group_info[1].generalShader = 1;	// index of rt miss shader in pipeline shader stage
+	//rt_shader_group_info[1].anyHitShader = VK_SHADER_UNUSED_KHR;
+	//rt_shader_group_info[1].closestHitShader = VK_SHADER_UNUSED_KHR;
+	//rt_shader_group_info[1].intersectionShader = VK_SHADER_UNUSED_KHR;
+
+	//// rt closest hit shader
+	//rt_shader_group_info[2].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+	//rt_shader_group_info[2].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+	//rt_shader_group_info[2].generalShader = VK_SHADER_UNUSED_KHR;
+	//rt_shader_group_info[2].anyHitShader = VK_SHADER_UNUSED_KHR;
+	//rt_shader_group_info[2].closestHitShader = 2; // index of rt hit shader in pipeline shader stage, index 2 is second miss shader
+	//rt_shader_group_info[2].intersectionShader = VK_SHADER_UNUSED_KHR;
 
 	VkRayTracingPipelineCreateInfoKHR rt_pipeline_info;
 	memset(&rt_pipeline_info, 0, sizeof(VkRayTracingPipelineCreateInfoKHR));
 	rt_pipeline_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
-	//rt_pipeline_info.stageCount = 4;
-	rt_pipeline_info.stageCount = 3;
+	rt_pipeline_info.stageCount = 4;
+	//rt_pipeline_info.stageCount = 3;
 	rt_pipeline_info.pStages = rt_shader_stages;
-	//rt_pipeline_info.groupCount = 4; // currently one ray gen shader, two miss shader, one closest hit shader
-	rt_pipeline_info.groupCount = 3;
+	rt_pipeline_info.groupCount = 4; // currently one ray gen shader, two miss shader, one closest hit shader
+	//rt_pipeline_info.groupCount = 3;
 	rt_pipeline_info.pGroups = rt_shader_group_info;
-	rt_pipeline_info.maxPipelineRayRecursionDepth = 1;
+	rt_pipeline_info.maxPipelineRayRecursionDepth = 2;
 	rt_pipeline_info.layout = vulkan_globals.raygen_pipeline.layout.handle;
 	/*rt_pipeline_info.pLibraryInfo = &pipelineLibraryCreateInfo;
 	rt_pipeline_info.pLibraryInterface = NULL;*/
@@ -2767,8 +2778,8 @@ void R_CreatePipelines()
 
 	// Create shader binding table
 
-	//uint32_t missCount = 2;
-	uint32_t missCount = 1;
+	uint32_t missCount = 2;
+	//uint32_t missCount = 1;
 	uint32_t hitCount = 1;
 	uint32_t handleCount = 1 + missCount + hitCount;	// the 1 is the ray gen shader, since there is always at least (and only) one
 
@@ -2776,24 +2787,6 @@ void R_CreatePipelines()
 	uint32_t shaderGroupBaseAlignment = vulkan_globals.raytracing_pipeline_properties.shaderGroupBaseAlignment;
 
 	uint32_t handleSizeAligned = align(shaderGroupHandleSize, vulkan_globals.raytracing_pipeline_properties.shaderGroupHandleAlignment);
-
-	//VkStridedDeviceAddressRegionKHR rt_gen_region;
-	//memset(&rt_gen_region, 0, sizeof(VkStridedDeviceAddressRegionKHR));
-	//rt_gen_region.stride = 1 * sbtSize;
-	//rt_gen_region.size = 1 * sbtSize;	// must be equal
-	//rt_gen_region.deviceAddress = sbtDeviceAdress + 0u * shaderGroupBaseAlignment;
-
-	//VkStridedDeviceAddressRegionKHR rt_miss_region;
-	//memset(&rt_miss_region, 0, sizeof(VkStridedDeviceAddressRegionKHR));
-	//rt_miss_region.stride = shaderGroupBaseAlignment;
-	//rt_miss_region.size = missCount * sbtSize;
-	//rt_miss_region.deviceAddress = sbtDeviceAdress + 1u * shaderGroupBaseAlignment;
-
-	//VkStridedDeviceAddressRegionKHR rt_hit_region;
-	//memset(&rt_hit_region, 0, sizeof(VkStridedDeviceAddressRegionKHR));
-	//rt_hit_region.stride = shaderGroupBaseAlignment;
-	//rt_hit_region.size = hitCount * sbtSize;
-	//rt_hit_region.deviceAddress = sbtDeviceAdress + 3u * shaderGroupBaseAlignment;
 
 	VkStridedDeviceAddressRegionKHR rt_gen_region;
 	memset(&rt_gen_region, 0, sizeof(VkStridedDeviceAddressRegionKHR));
@@ -2827,18 +2820,31 @@ void R_CreatePipelines()
 	char* shader_handles = alloca(dataSize);
 	memset(shader_handles, 0, dataSize);
 
-	err = vulkan_globals.fpGetRayTracingShaderGroupHandlesKHR(vulkan_globals.device, vulkan_globals.raygen_pipeline.handle, 0, handleCount, sbtSize, shader_handles);
+	err = vulkan_globals.fpGetRayTracingShaderGroupHandlesKHR(vulkan_globals.device, vulkan_globals.raygen_pipeline.handle, 0, handleCount, dataSize, shader_handles);
 	if (err != VK_SUCCESS)
 		Sys_Error("vkGetRayTracingShaderGroupHandlesKHR failed");
 
 	char* shader_binding_table = (char*)buffer_map(&sbtBufferResource);
-	for (uint32_t group = 0; group < handleCount; group++)
-	{
-		memcpy(
-			shader_binding_table + group * shaderGroupBaseAlignment,
-			shader_handles + group * shaderGroupHandleSize,
-			shaderGroupHandleSize);
+
+	char* sbt_pointer = shader_binding_table;
+	uint32_t current_handle = 0;
+	// copy handles
+	// raygen
+	memcpy(sbt_pointer, shader_handles + current_handle++ * shaderGroupHandleSize, shaderGroupHandleSize);
+	sbt_pointer += rt_gen_region.stride;
+
+	// miss
+	for (uint32_t c = 0; c < missCount; c++) {
+		memcpy(sbt_pointer, shader_handles + current_handle++ * shaderGroupHandleSize, shaderGroupHandleSize);
+		sbt_pointer += rt_miss_region.stride;
 	}
+
+	// hit
+	for (uint32_t c = 0; c < hitCount; c++) {
+		memcpy(sbt_pointer, shader_handles + current_handle++ * shaderGroupHandleSize, shaderGroupHandleSize);
+		sbt_pointer += rt_hit_region.stride;
+	}
+
 	buffer_unmap(&sbtBufferResource);
 	shader_binding_table = NULL;
 
@@ -2864,6 +2870,7 @@ void R_CreatePipelines()
 	 Destroy Shader Modules
 	================*/
 
+	vkDestroyShaderModule(vulkan_globals.device, shadow_miss_ray_module, NULL);
 	vkDestroyShaderModule(vulkan_globals.device, miss_ray_module, NULL);
 	vkDestroyShaderModule(vulkan_globals.device, hit_ray_module, NULL);
 	vkDestroyShaderModule(vulkan_globals.device, gen_ray_module, NULL);

@@ -378,7 +378,9 @@ void TexMgr_NewGame (void)
 
 void TexMgr_LoadActiveTextures(void)
 {
-	if (vulkan_globals.texture_list == NULL) {
+	// TODO: Only run when loading new level or on respawn
+	//if (vulkan_globals.texture_list == NULL) {
+		free(vulkan_globals.texture_list);
 		VkImageView* images = (VkImageView*)malloc(MAX_GLTEXTURES * sizeof(VkImageView));
 		int image_count = 0;
 		gltexture_t* current_texture = active_gltextures;
@@ -402,7 +404,7 @@ void TexMgr_LoadActiveTextures(void)
 
 		vulkan_globals.texture_list = images;
 		vulkan_globals.texture_list_count = image_count;
-	}
+	//}
 }
 
 /*

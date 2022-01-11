@@ -973,6 +973,7 @@ const char *ED_ParseEdict (const char *data, edict_t *ent)
 
 		if (!ED_ParseEpair ((void *)&ent->v, key, com_token, qcvm != &sv.qcvm))
 			Host_Error ("ED_ParseEdict: parse error");
+
 	}
 
 	if (!init)

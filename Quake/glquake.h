@@ -246,6 +246,30 @@ typedef struct rt_model_data_s {
 	rt_model_shader_data_t** model_shader_data;
 } rt_model_data_t;
 
+typedef struct rt_light_entity_s {
+	vec4_t origin_radius;
+	vec4_t light_color;
+	vec3_t absmin;
+	vec3_t absmax;
+	vec4_t light_clamp;
+
+	int leafnums[16];
+	int lightStyle;
+
+	int num_leafs;
+	float distance;
+
+	int index;
+
+	//qboolean isAreaLight;
+} rt_light_entity_t;
+
+typedef struct rt_light_entity_shader_s {
+	vec4_t origin_radius;
+	vec4_t light_color;
+	vec4_t light_clamp;
+} rt_light_entity_shader_t;
+
 
 typedef struct raygen_desc_set_items_s {
 	VkImageView output_image_view;
@@ -312,6 +336,8 @@ typedef struct
 	int									scratch_buffer_pointer;
 	BufferResource_t					acceleration_structure_scratch_buffer;
 	
+
+	// RT Buffers
 	int									as_instances_pointer;
 	BufferResource_t					as_instances;
 
@@ -321,6 +347,12 @@ typedef struct
 
 	BufferResource_t					rt_model_info_buffer;
 	BufferResource_t					rt_blas_info_buffer;
+
+	int									rt_light_entities_count;
+	rt_light_entity_t*					rt_light_entities;
+
+	BufferResource_t					rt_light_entities_buffer;
+	BufferResource_t					rt_light_entities_list_buffer;
 
 	rt_model_data_t						model_data;
 
@@ -622,6 +654,11 @@ void GLMesh_LoadVertexBuffers(void);
 void GLMesh_DeleteVertexBuffers(void);
 
 int R_LightPoint(vec3_t p);
+void R_InitWorldLightEntities(void);
+void R_AddWorldLightEntity(float x, float y, float z, float radius, int lightStyle, float r, float g, float b);
+void R_CopyLightEntitiesToBuffer(void);
+int lightSort(const void* a, const void* b);
+void R_CreateLightEntitiesList(vec3_t viewpos);
 
 void GL_SubdivideSurface(msurface_t* fa);
 void R_BuildLightMap(msurface_t* surf, byte* dest, int stride);
@@ -647,6 +684,7 @@ void Sky_LoadSkyBox(const char* name);
 
 void R_ClearTextureChains(qmodel_t* mod, texchain_t chain);
 void R_ChainSurface(msurface_t* surf, texchain_t chain);
+void R_DrawTextureChains_RTX(qmodel_t* model, entity_t* ent, texchain_t chain);
 void R_DrawTextureChains(qmodel_t* model, entity_t* ent, texchain_t chain);
 void R_DrawWorld_Water(void);
 

@@ -230,6 +230,7 @@ R_DrawBrushModel
 void R_DrawBrushModel (entity_t *e)
 {
 	int			i, k;
+	i;
 	msurface_t	*psurf;
 	float		dot;
 	mplane_t	*pplane;
@@ -281,7 +282,10 @@ void R_DrawBrushModel (entity_t *e)
 	memcpy(mvp, vulkan_globals.view_projection_matrix, 16 * sizeof(float));
 	MatrixMultiply(mvp, model_matrix);
 
-	R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), mvp);
+	
+
+	// Legacy raster code
+	//R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), mvp);
 	R_ClearTextureChains (clmodel, chain_model);
 	for (i=0 ; i<clmodel->nummodelsurfaces ; i++, psurf++)
 	{
@@ -291,14 +295,16 @@ void R_DrawBrushModel (entity_t *e)
 			(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
 		{
 			R_ChainSurface (psurf, chain_model);
-			R_RenderDynamicLightmaps(psurf);
+			//R_RenderDynamicLightmaps(psurf);
 			rs_brushpolys++;
 		}
 	}
 
-	R_DrawTextureChains (clmodel, e, chain_model);
-	R_DrawTextureChains_Water (clmodel, e, chain_model);
-	R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), vulkan_globals.view_projection_matrix);
+	//R_DrawTextureChains (clmodel, e, chain_model);
+	//R_DrawTextureChains_Water (clmodel, e, chain_model);
+	//R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), vulkan_globals.view_projection_matrix);
+	
+	R_DrawTextureChains_RTX(clmodel, e, chain_model);
 }
 
 /*
