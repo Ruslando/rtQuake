@@ -2640,10 +2640,6 @@ void R_CreatePipelines()
 	// Ray generation
 	//================
 
-	// Ray generation device procedures
-	//GET_DEVICE_PROC_ADDR(CreateRayTracingPipelinesKHR);
-	//GET_DEVICE_PROC_ADDR(GetRayTracingShaderGroupHandlesKHR);
-
 	VkPipelineShaderStageCreateInfo rt_shader_stages[4];
 	memset(&rt_shader_stages, 0, 4 * sizeof(VkPipelineShaderStageCreateInfo));
 

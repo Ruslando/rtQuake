@@ -92,6 +92,7 @@ void main()
 	float lightIntensity;
 	float attenuation;
 	vec3 L ;
+	vec3 L2;
 
 	float NdotL;
 	float diffuse;
@@ -101,40 +102,44 @@ void main()
 	for(int i = 1; i < 3; i++)
 	{
 		lightEntity = lightEntitiesBuffer.l[i];
-		lightDirection = worldPos - lightEntity.origin_radius.xyz;
+		lightDirection = worldPos - lightEntity.origin_radius.xyz;	// usually other way around
 		lightDistance = length(lightDirection);
 		lightIntensity = (250 * 100) / (lightDistance * lightDistance);
 		attenuation = 1;
 		L = normalize(lightDirection);
+		L2 = normalize(lightDirection *-1);
 
 		NdotL = dot(geometricNormal, L);
 		float diffuse = lightIntensity * NdotL;
 
-		float tMin   = 0.001;
-		float tMax   = lightDistance;
-		vec3  origin = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
-		vec3  rayDir = L;
-		uint  flags =
-			gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
-		isShadowed = true;
-		traceRayEXT(topLevelAS,  // acceleration structure
-				flags,       // rayFlags
-				0xFF,        // cullMask
-				0,           // sbtRecordOffset
-				0,           // sbtRecordStride
-				1,           // missIndex
-				origin,      // ray origin
-				tMin,        // ray min range
-				rayDir,      // ray direction
-				tMax,        // ray max range
-				1            // payload (location = 1)
-		);
+		if(dot(geometricNormal, L2) < 0){
+			float tMin   = 0.001;
+			float tMax   = lightDistance;
+			vec3  origin = worldPos;
+			vec3  rayDir = L2; // flip ray direction
+			uint  flags =
+				gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+			isShadowed = true;
+			traceRayEXT(topLevelAS,  // acceleration structure
+					flags,       // rayFlags
+					0xFF,        // cullMask
+					0,           // sbtRecordOffset
+					0,           // sbtRecordStride
+					1,           // missIndex
+					origin,      // ray origin
+					tMin,        // ray min range
+					rayDir,      // ray direction
+					tMax,        // ray max range
+					1            // payload (location = 1)
+			);
 
-		if(isShadowed){
-			attenuation = 0.3;
+			if(isShadowed){
+				attenuation = 0.3;
+			}
 		}
 
 		sumNdotL += diffuse * attenuation;
+		
 	}
 
 	outColor *= sumNdotL;

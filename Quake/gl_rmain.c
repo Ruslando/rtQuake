@@ -1292,7 +1292,7 @@ void R_RenderScene_RTX(void)
 	if (vulkan_globals.acceleration_structure_scratch_buffer.buffer == NULL) {
 		// for the beginning just allocate 131072 bytes of storage, its just a random size.
 		buffer_create(&vulkan_globals.acceleration_structure_scratch_buffer, 131072,
-			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 	}
 	// clear buffer data
@@ -1304,7 +1304,7 @@ void R_RenderScene_RTX(void)
 
 	if (vulkan_globals.as_instances.buffer == NULL) {
 		buffer_create(&vulkan_globals.as_instances, 1 * sizeof(VkAccelerationStructureInstanceKHR),
-			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 	}
 
@@ -1313,7 +1313,6 @@ void R_RenderScene_RTX(void)
 
 	vulkan_globals.as_instances_pointer = 0;
 	buffer_unmap(&vulkan_globals.as_instances);
-
 
 	//// Blas Instances
 	int dynamic_vertex_count = 0;
@@ -1347,12 +1346,14 @@ void R_RenderScene_RTX(void)
 
 	// static world vertex and dynamic world index data;
 	R_FillWorldModelData();
+	
+	//R_DrawViewModel();
 
-	R_DrawViewModel();
+	//S_ExtraUpdate(); // don't let sound get messed up if going slow
 
-	RT_DrawEntitiesOnList(false);
+	//RT_DrawEntitiesOnList(false);
 
-	RT_DrawEntitiesOnList(true);
+	//RT_DrawEntitiesOnList(true);
 
 	R_CreateBlasData();
 
@@ -1371,6 +1372,8 @@ void R_RenderScene_RTX(void)
 	}
 	
 	void* index_buffer_data = buffer_map(&vulkan_globals.rt_index_buffer);
+	// clear index buffer and then copy new content
+	//memset(index_buffer_data, 0, vulkan_globals.rt_index_buffer.size);
 	memcpy(index_buffer_data, index_data, index_count * sizeof(uint32_t));
 	buffer_unmap(&vulkan_globals.rt_index_buffer);
 

@@ -2280,10 +2280,10 @@ void Mod_LoadLightEntities(void) {
 	// Load light entities copied from quakertx dx12 project
 	const char* data = loadmodel->entities;
 
-	static edict_light_t ent;
+	edict_light_t ent;
 	while (1)
 	{
-		memset(&ent, 0, sizeof(edict_t));
+		memset(&ent, 0, sizeof(ent));
 
 		// parse the opening brace
 		data = COM_Parse(data);

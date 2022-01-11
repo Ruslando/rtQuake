@@ -569,6 +569,11 @@ Loads world buffer data into vertex buffer
 ================
 */
 void R_CreateRTVertexBuffer() {
+
+	// get buffer memory requirements for bmodel buffer size
+	VkMemoryRequirements memory_requirements;
+	vkGetBufferMemoryRequirements(vulkan_globals.device, bmodel_vertex_buffer, &memory_requirements);
+
 	if(vulkan_globals.rt_vertex_buffer.buffer == NULL){
 
 		VkDeviceSize vertex_data_size = 65536 * sizeof(rt_vertex_t);
@@ -581,10 +586,6 @@ void R_CreateRTVertexBuffer() {
 
 			vulkan_globals.rt_vertex_buffer = rt_vertex_buffer_resource;
 		}
-
-		// get buffer memory requirements for bmodel buffer size
-		VkMemoryRequirements memory_requirements;
-		vkGetBufferMemoryRequirements(vulkan_globals.device, bmodel_vertex_buffer, &memory_requirements);
 
 		//map buffer of bmodel vertex buffer and copy data to array
 		void* data;
@@ -626,6 +627,13 @@ void R_CreateRTVertexBuffer() {
 
 		free(vertex_data);
 	}
+	else {
+		/*int maxVerts = memory_requirements.size / (sizeof(rt_vertex_t) - sizeof(int));
+
+		byte* vertex_buffer_data = buffer_map(&vulkan_globals.rt_vertex_buffer);
+		memset(vertex_buffer_data + (maxVerts * sizeof(rt_vertex_t)), 0, vulkan_globals.rt_vertex_buffer.size - (maxVerts * sizeof(rt_vertex_t)));
+		buffer_unmap(&vulkan_globals.rt_vertex_buffer);*/
+	}
 }
 
 /*
@@ -646,10 +654,6 @@ void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, c
 	gltexture_t* fullbright = NULL;
 	int index_count = vulkan_globals.model_data.index_count[0];
 
-	//int vertex_count_offset = vulkan_globals.model_data.static_vertex_count;
-	//int vertex_count_offset = 0;
-	//int index_count_offset = vulkan_globals.model_data.index_count[0];
-
 	void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_vertex_buffer);
 	rt_vertex_t* vertex_data_pointer = (rt_vertex_t*)vertex_buffer_data;
 	buffer_unmap(&vulkan_globals.rt_vertex_buffer);
@@ -659,6 +663,7 @@ void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, c
 	rt_model_shader_data_t model_shader_data;
 	
 	for (i = 0; i < model->numtextures; ++i)
+	//for (i = 0; i < 1; ++i)
 	{
 		t = model->textures[i];
 
