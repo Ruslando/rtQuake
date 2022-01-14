@@ -214,10 +214,10 @@ typedef struct rt_data_s {
 typedef struct rt_blas_data_t {
 	int vertex_buffer_offset;
 	int vertex_count;
-
 	int index_buffer_offset;
 	int index_count;
-
+	int model_count;
+	int model_info_buffer_offset;
 	VkBuffer transform_data_buffer;
 } rt_blas_data_t;
 
@@ -230,21 +230,6 @@ typedef struct rt_model_shader_data_s {
 	int texture_buffer_offset_index;
 	int texture_buffer_fullbright_offset_index;
 } rt_model_shader_data_t;
-
-typedef struct rt_model_data_s {
-	int static_vertex_count;
-	int* dynamic_vertex_count;
-	rt_vertex_t** vertex_data;
-
-	int* index_count;
-	uint32_t** index_data;
-
-	int* blas_count;
-	int* model_count;
-	rt_blas_data_t** blas_data;
-	rt_blas_shader_data_t** blas_shader_data;
-	rt_model_shader_data_t** model_shader_data;
-} rt_model_data_t;
 
 typedef struct rt_light_entity_s {
 	vec4_t origin_radius;
@@ -307,6 +292,7 @@ typedef struct
 	qboolean							debug_utils;
 	VkQueue								queue;
 	VkCommandBuffer						command_buffer;
+	int									current_command_buffer;
 	vulkan_pipeline_t					current_pipeline;
 	VkClearValue						color_clear_value;
 	VkFormat							swap_chain_format;
@@ -341,12 +327,23 @@ typedef struct
 	int									as_instances_pointer;
 	BufferResource_t					as_instances;
 
-	BufferResource_t					rt_vertex_buffer;
-	BufferResource_t					rt_index_buffer;
+	// TODO: Replace most buffers with the dynamic buffers made in rtquake
+	BufferResource_t					rt_static_vertex_buffer;
+	VkBuffer							rt_dynamic_vertex_buffer;
+
+	// May be used later, for loading whole level for example.
+	//VkBuffer							rt_static_index_buffer;
+	VkBuffer							rt_dynamic_index_buffer;
+
 	BufferResource_t					rt_uniform_buffer;
 
-	BufferResource_t					rt_model_info_buffer;
-	BufferResource_t					rt_blas_info_buffer;
+	// TODO: Maybe these buffers could be replaced by dynamic buffers as well. How do i safe the offsets though?
+	// TODO: Offset could be saved as push constants. When updating descriptor set I could put an offset to the buffer to gain 
+
+	rt_model_shader_data_t*				rt_model_shader_pointer;
+
+	int									rt_current_blas_index;
+	rt_blas_data_t*						rt_blas_data_pointer;
 
 	int									rt_light_entities_count;
 	rt_light_entity_t*					rt_light_entities;
@@ -354,9 +351,7 @@ typedef struct
 	BufferResource_t					rt_light_entities_buffer;
 	BufferResource_t					rt_light_entities_list_buffer;
 
-	rt_model_data_t						model_data;
-
-	VkImageView*						texture_list;
+	VkDescriptorImageInfo*				texture_list;
 	int									texture_list_count;
 
 	// Instance extensions
@@ -401,7 +396,7 @@ typedef struct
 	VkRenderPassBeginInfo				main_render_pass_begin_infos[2];
 	VkRenderPass						raygen_render_pass;
 	VkClearValue						raygen_clear_values;
-	VkRenderPassBeginInfo				raygen_render_pass_begin_info;
+	VkRenderPassBeginInfo				raygen_render_pass_begin_infos[2];
 	VkRenderPass						ui_render_pass;
 	VkRenderPassBeginInfo				ui_render_pass_begin_info;
 	VkRenderPass						warp_render_pass;
@@ -640,7 +635,8 @@ void R_TranslateNewPlayerSkin(int playernum); //johnfitz -- this handles cases w
 void R_UpdateWarpTextures(void);
 
 void R_DrawWorld(void);
-void R_FillWorldModelData();
+void RT_LoadStaticWorldGeometry();
+void RT_LoadDynamicWorldIndices();
 void R_DrawAliasModel(entity_t* e);
 void R_DrawBrushModel(entity_t* e);
 void R_DrawSpriteModel(entity_t* e);
@@ -716,7 +712,6 @@ void R_Create_BLAS_Instance(int blas_index, VkBuffer vertex_buffer,
 	uint32_t vertex_offset, uint32_t num_vertices, uint32_t num_triangles, uint32_t stride,
 	VkBuffer index_buffer, uint32_t num_indices, uint32_t index_offset, VkFormat format, VkIndexType index_type, VkBuffer transform_data);
 void R_Create_TLAS();
-static void vkpt_destroy_acceleration_structure();
 int accel_matches(accel_match_info_t* match, int fast_build,uint32_t vertex_count,uint32_t index_count);
 int accel_matches_top_level(accel_match_info_t* match, int fast_build, uint32_t instance_count);
 void destroy_accel_struct(accel_struct_t* blas);

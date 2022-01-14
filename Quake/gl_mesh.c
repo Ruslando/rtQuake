@@ -736,9 +736,6 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	}
 
 	free (vbodata);
-
-
-	// Upload to rt_vertex_buffer;
 	
 }
 

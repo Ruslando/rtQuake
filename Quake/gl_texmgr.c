@@ -378,10 +378,13 @@ void TexMgr_NewGame (void)
 
 void TexMgr_LoadActiveTextures(void)
 {
+
 	// TODO: Only run when loading new level or on respawn
-	//if (vulkan_globals.texture_list == NULL) {
+	if (vulkan_globals.texture_list == NULL) {
 		free(vulkan_globals.texture_list);
-		VkImageView* images = (VkImageView*)malloc(MAX_GLTEXTURES * sizeof(VkImageView));
+		VkDescriptorImageInfo* texture_image_infos = (VkDescriptorImageInfo*)malloc(MAX_GLTEXTURES * sizeof(VkDescriptorImageInfo));
+		memset(texture_image_infos, 0, MAX_GLTEXTURES * sizeof(VkDescriptorImageInfo));
+
 		int image_count = 0;
 		gltexture_t* current_texture = active_gltextures;
 
@@ -396,15 +399,23 @@ void TexMgr_LoadActiveTextures(void)
 				imageview_index++;
 			}
 
-			images[imageview_index] = current_texture->image_view;
+			texture_image_infos[imageview_index].imageView = current_texture->image_view;
+			texture_image_infos[imageview_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			texture_image_infos[imageview_index].sampler = vulkan_globals.linear_sampler_lod_bias;
+
 			image_count++;
 			current_texture = current_texture->next;
 
 		}
 
-		vulkan_globals.texture_list = images;
+		VkDescriptorImageInfo* texture_list_data = (VkDescriptorImageInfo*)malloc(image_count * sizeof(VkDescriptorImageInfo));
+		memcpy(texture_list_data, texture_image_infos, image_count * sizeof(VkDescriptorImageInfo));
+
+		vulkan_globals.texture_list = texture_list_data;
 		vulkan_globals.texture_list_count = image_count;
-	//}
+
+		free(texture_image_infos);
+	}
 }
 
 /*

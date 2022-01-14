@@ -123,7 +123,7 @@ static VkCommandBuffer				command_buffers[NUM_COMMAND_BUFFERS];
 static VkFence						command_buffer_fences[NUM_COMMAND_BUFFERS];
 static qboolean						command_buffer_submitted[NUM_COMMAND_BUFFERS];
 static VkFramebuffer				main_framebuffers[NUM_COLOR_BUFFERS];
-static VkFramebuffer				raytrace_framebuffer;
+static VkFramebuffer				raytrace_framebuffer[NUM_COLOR_BUFFERS];
 static VkSemaphore					image_aquired_semaphores[NUM_COMMAND_BUFFERS];
 static VkSemaphore					draw_complete_semaphores[NUM_COMMAND_BUFFERS];
 static VkFramebuffer				ui_framebuffers[MAX_SWAP_CHAIN_IMAGES];
@@ -1338,9 +1338,7 @@ static void GL_CreateRenderPasses()
 
 	// UI Render Pass
 	attachment_descriptions[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	//attachment_descriptions[0].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
-	//attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	attachment_descriptions[0].samples = VK_SAMPLE_COUNT_1_BIT;
 	attachment_descriptions[0].format = vulkan_globals.color_format;
 	attachment_descriptions[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -1605,8 +1603,8 @@ static void GL_CreateColorBuffer(void)
 			Sys_Error("vkCreateImageView failed");
 
 		GL_SetObjectName((uint64_t)color_buffers_view[i], VK_OBJECT_TYPE_IMAGE_VIEW, va("Color Buffer View %d", i));
-		vulkan_globals.raygen_desc_set_items.output_image_view = color_buffers_view[0];
 	}
+	vulkan_globals.raygen_desc_set_items.output_image_view = color_buffers_view[0];
 
 	vulkan_globals.sample_count = VK_SAMPLE_COUNT_1_BIT;
 	vulkan_globals.supersampling = false;
@@ -2046,27 +2044,47 @@ static void GL_CreateFrameBuffers(void)
 	VkResult err;
 
 	const qboolean resolve = (vulkan_globals.sample_count != VK_SAMPLE_COUNT_1_BIT);
+	resolve;
 
 	for (i = 0; i < NUM_COLOR_BUFFERS; ++i)
 	{
+		// VkFramebufferCreateInfo framebuffer_create_info;
+		// memset(&framebuffer_create_info, 0, sizeof(framebuffer_create_info));
+		// framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		// framebuffer_create_info.renderPass = vulkan_globals.main_render_pass;
+		// framebuffer_create_info.attachmentCount = resolve ? 3 : 2;
+		// framebuffer_create_info.width = vid.width;
+		// framebuffer_create_info.height = vid.height;
+		// framebuffer_create_info.layers = 1;
+
+		// VkImageView attachments[3] = { color_buffers_view[i], depth_buffer_view, msaa_color_buffer_view };
+		// framebuffer_create_info.pAttachments = attachments;
+
+		// assert(main_framebuffers[i] == VK_NULL_HANDLE);
+		// err = vkCreateFramebuffer(vulkan_globals.device, &framebuffer_create_info, NULL, &main_framebuffers[i]);
+		// if (err != VK_SUCCESS)
+		// 	Sys_Error("vkCreateFramebuffer failed");
+
+		// GL_SetObjectName((uint64_t)main_framebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, "main");
+
 		VkFramebufferCreateInfo framebuffer_create_info;
 		memset(&framebuffer_create_info, 0, sizeof(framebuffer_create_info));
 		framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-		framebuffer_create_info.renderPass = vulkan_globals.main_render_pass;
-		framebuffer_create_info.attachmentCount = resolve ? 3 : 2;
+		framebuffer_create_info.renderPass = vulkan_globals.raygen_render_pass;
+		framebuffer_create_info.attachmentCount = 1;
 		framebuffer_create_info.width = vid.width;
 		framebuffer_create_info.height = vid.height;
 		framebuffer_create_info.layers = 1;
 
-		VkImageView attachments[3] = { color_buffers_view[i], depth_buffer_view, msaa_color_buffer_view };
-		framebuffer_create_info.pAttachments = attachments;
+		VkImageView rt_attachments[1] = { color_buffers_view[1] };
+		framebuffer_create_info.pAttachments = rt_attachments;
 
-		assert(main_framebuffers[i] == VK_NULL_HANDLE);
-		err = vkCreateFramebuffer(vulkan_globals.device, &framebuffer_create_info, NULL, &main_framebuffers[i]);
+		assert(raytrace_framebuffer[i] == VK_NULL_HANDLE);
+		err = vkCreateFramebuffer(vulkan_globals.device, &framebuffer_create_info, NULL, &raytrace_framebuffer[i]);
 		if (err != VK_SUCCESS)
 			Sys_Error("vkCreateFramebuffer failed");
 
-		GL_SetObjectName((uint64_t)main_framebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, "main");
+		GL_SetObjectName((uint64_t)raytrace_framebuffer[i], VK_OBJECT_TYPE_FRAMEBUFFER, "raytrace framebuffer");
 	}
 
 	for (i = 0; i < num_swap_chain_images; ++i)
@@ -2080,7 +2098,7 @@ static void GL_CreateFrameBuffers(void)
 		framebuffer_create_info.height = vid.height;
 		framebuffer_create_info.layers = 1;
 
-		// TODO: Change first attachment to color_buffers_view or raytrace_buffer_view depending on which render pipeline is currently on
+
 		VkImageView attachments[2] = { color_buffers_view[0], swapchain_images_views[i] };
 		framebuffer_create_info.pAttachments = attachments;
 
@@ -2092,24 +2110,7 @@ static void GL_CreateFrameBuffers(void)
 		GL_SetObjectName((uint64_t)ui_framebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, "ui");
 	}
 
-	VkFramebufferCreateInfo framebuffer_create_info;
-	memset(&framebuffer_create_info, 0, sizeof(framebuffer_create_info));
-	framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-	framebuffer_create_info.renderPass = vulkan_globals.raygen_render_pass;
-	framebuffer_create_info.attachmentCount = 1;
-	framebuffer_create_info.width = vid.width;
-	framebuffer_create_info.height = vid.height;
-	framebuffer_create_info.layers = 1;
-
-	VkImageView attachments[1] = { color_buffers_view[0] };
-	framebuffer_create_info.pAttachments = attachments;
-
-	assert(raytrace_framebuffer == VK_NULL_HANDLE);
-	err = vkCreateFramebuffer(vulkan_globals.device, &framebuffer_create_info, NULL, &raytrace_framebuffer);
-	if (err != VK_SUCCESS)
-		Sys_Error("vkCreateFramebuffer failed");
-
-	GL_SetObjectName((uint64_t)raytrace_framebuffer, VK_OBJECT_TYPE_FRAMEBUFFER, "raytrace framebuffer");
+	
 }
 
 /*
@@ -2195,10 +2196,10 @@ static void GL_DestroyRenderResources(void)
 	{
 		vkDestroyFramebuffer(vulkan_globals.device, main_framebuffers[i], NULL);
 		main_framebuffers[i] = VK_NULL_HANDLE;
-	}
 
-	vkDestroyFramebuffer(vulkan_globals.device, raytrace_framebuffer, NULL);
-	raytrace_framebuffer = VK_NULL_HANDLE;
+		vkDestroyFramebuffer(vulkan_globals.device, raytrace_framebuffer[i], NULL);
+		raytrace_framebuffer[i] = VK_NULL_HANDLE;
+	}
 
 	for (i = 0; i < num_swap_chain_images; ++i)
 	{
@@ -2322,14 +2323,17 @@ qboolean GL_BeginRendering(int* x, int* y, int* width, int* height)
 	{
 		vulkan_globals.raygen_clear_values = vulkan_globals.color_clear_value;
 
-		memset(&vulkan_globals.raygen_render_pass_begin_info, 0, sizeof(vulkan_globals.raygen_render_pass_begin_info));
+		memset(&vulkan_globals.raygen_render_pass_begin_infos, 0, sizeof(vulkan_globals.raygen_render_pass_begin_infos));
 		
-		vulkan_globals.raygen_render_pass_begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		vulkan_globals.raygen_render_pass_begin_info.renderArea = render_area;
-		vulkan_globals.raygen_render_pass_begin_info.renderPass = vulkan_globals.raygen_render_pass;
-		vulkan_globals.raygen_render_pass_begin_info.framebuffer = raytrace_framebuffer;
-		vulkan_globals.raygen_render_pass_begin_info.clearValueCount = 1;
-		vulkan_globals.raygen_render_pass_begin_info.pClearValues = &vulkan_globals.raygen_clear_values;
+		for (i = 0; i < 2; ++i)
+		{
+			vulkan_globals.raygen_render_pass_begin_infos[i].sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+			vulkan_globals.raygen_render_pass_begin_infos[i].renderArea = render_area;
+			vulkan_globals.raygen_render_pass_begin_infos[i].renderPass = vulkan_globals.raygen_render_pass;
+			vulkan_globals.raygen_render_pass_begin_infos[i].framebuffer = raytrace_framebuffer[i];
+			vulkan_globals.raygen_render_pass_begin_infos[i].clearValueCount = 1;
+			vulkan_globals.raygen_render_pass_begin_infos[i].pClearValues = &vulkan_globals.raygen_clear_values;
+		}
 	}
 	
 
@@ -2492,6 +2496,7 @@ void GL_EndRendering(qboolean swapchain_acquired)
 
 	command_buffer_submitted[current_command_buffer] = true;
 	current_command_buffer = (current_command_buffer + 1) % NUM_COMMAND_BUFFERS;
+	vulkan_globals.current_command_buffer = current_command_buffer;
 }
 
 /*

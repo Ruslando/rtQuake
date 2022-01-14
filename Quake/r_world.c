@@ -351,7 +351,7 @@ Writes out the triangle indices needed to draw s as a triangle list.
 The number of indices it will write is given by R_NumTriangleIndicesForSurf.
 ================
 */
-static void R_TriangleAndTextureIndicesForSurf(msurface_t* s, uint32_t* indices, int num_vbo_indices)
+static void R_TriangleAndTextureIndicesForSurf(msurface_t* s, uint16_t* indices, int num_vbo_indices)
 {
 	int i;
 	for (i = 2; i < s->numedges; i++)
@@ -563,28 +563,28 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 
 /*
 ================
-R_CreateRTVertexBuffer
+RT_LoadStaticWorldVertices
 
 Loads world buffer data into vertex buffer
 ================
 */
-void R_CreateRTVertexBuffer() {
+void RT_LoadStaticWorldVertices() {
 
 	// get buffer memory requirements for bmodel buffer size
 	VkMemoryRequirements memory_requirements;
 	vkGetBufferMemoryRequirements(vulkan_globals.device, bmodel_vertex_buffer, &memory_requirements);
-
-	if(vulkan_globals.rt_vertex_buffer.buffer == NULL){
+	
+	if (vulkan_globals.rt_static_vertex_buffer.buffer == NULL) {
 
 		VkDeviceSize vertex_data_size = 65536 * sizeof(rt_vertex_t);
 		// Vertex buffer allocation
-		if (vulkan_globals.rt_vertex_buffer.buffer == NULL) {
+		if (vulkan_globals.rt_static_vertex_buffer.buffer == NULL) {
 			BufferResource_t rt_vertex_buffer_resource;
 			buffer_create(&rt_vertex_buffer_resource, vertex_data_size,
 				VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
-			vulkan_globals.rt_vertex_buffer = rt_vertex_buffer_resource;
+			vulkan_globals.rt_static_vertex_buffer = rt_vertex_buffer_resource;
 		}
 
 		//map buffer of bmodel vertex buffer and copy data to array
@@ -619,29 +619,32 @@ void R_CreateRTVertexBuffer() {
 			vertex_data[j].model_shader_data_index = -1;
 		}
 
-		void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_vertex_buffer);
+		void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_static_vertex_buffer);
 		memcpy(vertex_buffer_data, vertex_data, maxVerts * sizeof(rt_vertex_t));
-		buffer_unmap(&vulkan_globals.rt_vertex_buffer);
+		buffer_unmap(&vulkan_globals.rt_static_vertex_buffer);
 
-		vulkan_globals.model_data.static_vertex_count = maxVerts;
 
 		free(vertex_data);
+
+		vulkan_globals.rt_blas_data_pointer[vulkan_globals.rt_current_blas_index].vertex_buffer_offset = 0;
+		vulkan_globals.rt_blas_data_pointer[vulkan_globals.rt_current_blas_index].vertex_count = maxVerts;
 	}
 	else {
 		/*int maxVerts = memory_requirements.size / (sizeof(rt_vertex_t) - sizeof(int));
 
-		byte* vertex_buffer_data = buffer_map(&vulkan_globals.rt_vertex_buffer);
-		memset(vertex_buffer_data + (maxVerts * sizeof(rt_vertex_t)), 0, vulkan_globals.rt_vertex_buffer.size - (maxVerts * sizeof(rt_vertex_t)));
-		buffer_unmap(&vulkan_globals.rt_vertex_buffer);*/
+		byte* vertex_buffer_data = buffer_map(&vulkan_globals.rt_static_vertex_buffer);
+		memset(vertex_buffer_data + (maxVerts * sizeof(rt_vertex_t)), 0, vulkan_globals.rt_static_vertex_buffer.size - (maxVerts * sizeof(rt_vertex_t)));
+		buffer_unmap(&vulkan_globals.rt_static_vertex_buffer);*/
 	}
+
 }
 
 /*
 ================
-R_GetBrushModelData_RTX
+RT_LoadBrushModelIndices
 ================
 */
-void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, const float alpha)
+void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, const float alpha)
 {
 	int			i;
 	msurface_t* s;
@@ -652,18 +655,20 @@ void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, c
 	//qboolean	alpha_blend = alpha < 1.0f;
 	//qboolean	use_zbias = (gl_zfix.value && model != cl.worldmodel);
 	gltexture_t* fullbright = NULL;
-	int index_count = vulkan_globals.model_data.index_count[0];
+	rt_model_shader_data_t model_shader;
 
-	void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_vertex_buffer);
+	// sets current overall index_count
+	int index_count = vulkan_globals.rt_blas_data_pointer[vulkan_globals.rt_current_blas_index].index_count;
+
+	int current_blas_index = vulkan_globals.rt_current_blas_index;
+
+	// static vertex buffer
+	void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_static_vertex_buffer);
 	rt_vertex_t* vertex_data_pointer = (rt_vertex_t*)vertex_buffer_data;
-	buffer_unmap(&vulkan_globals.rt_vertex_buffer);
 
-	/*rt_blas_data_t blas_data;
-	rt_blas_shader_data_t blas_shader_data;*/
-	rt_model_shader_data_t model_shader_data;
+	uint16_t* index_data_pointer = (uint16_t*)malloc(16000 * sizeof(uint16_t));
 	
 	for (i = 0; i < model->numtextures; ++i)
-	//for (i = 0; i < 1; ++i)
 	{
 		t = model->textures[i];
 
@@ -708,7 +713,7 @@ void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, c
 
 				num_surf_indices = R_NumTriangleIndicesForSurf(s);
 
-				R_TriangleAndTextureIndicesForSurf(s, *vulkan_globals.model_data.index_data, index_count);	// cumulative index count of previous models (offset) + current index_count
+				R_TriangleAndTextureIndicesForSurf(s, index_data_pointer, index_count);	// cumulative index count of previous models (offset) + current index_count
 				index_count += num_surf_indices;
 			}
 
@@ -716,23 +721,27 @@ void R_GetBrushModelData_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, c
 		}
 
 
-		uint32_t* vertex_index = *vulkan_globals.model_data.index_data;
 
-		for (int j = vulkan_globals.model_data.index_count[0]; j < index_count; j++) {
-			vertex_data_pointer[vertex_index[j]].model_shader_data_index = vulkan_globals.model_data.model_count[0];
+		for (int j = vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count; j < index_count; j++) {
+			vertex_data_pointer[index_data_pointer[j]].model_shader_data_index = vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count;
 		}
 
-		model_shader_data.texture_buffer_offset_index = tx_imageview_index;
-		model_shader_data.texture_buffer_fullbright_offset_index = fb_imageview_index;
+		model_shader.texture_buffer_offset_index = tx_imageview_index;
+		model_shader.texture_buffer_fullbright_offset_index = fb_imageview_index;
 
-		*vulkan_globals.model_data.index_count = index_count;
+		vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count = index_count;
 
-		rt_model_shader_data_t* model_data_pointer = *vulkan_globals.model_data.model_shader_data;
-		model_data_pointer[vulkan_globals.model_data.model_count[0]] = model_shader_data;
-		*vulkan_globals.model_data.model_count += 1;
+		vulkan_globals.rt_model_shader_pointer[vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count] = model_shader;
+		vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count += 1;
 	}
 
 	num_vbo_indices = 0;
+	buffer_unmap(&vulkan_globals.rt_static_vertex_buffer);
+
+	VkBuffer dynamic_index_buffer;
+	VkDeviceSize dynamic_index_buffer_offset;
+	uint16_t* indices = (uint16_t*) R_IndexAllocate(index_count * sizeof(uint16_t), &dynamic_index_buffer, &dynamic_index_buffer_offset);
+	memcpy(indices, index_data_pointer, index_count * sizeof(uint16_t));
 }
 
 /*
@@ -829,7 +838,7 @@ void R_DrawTextureChains_RTX(qmodel_t* model, entity_t* ent, texchain_t chain)
 	else
 		entalpha = 1;
 
-	R_GetBrushModelData_RTX(model, ent, chain, entalpha);
+	RT_LoadBrushModelIndices(model, ent, chain, entalpha);
 }
 
 /*
@@ -865,19 +874,26 @@ void R_DrawWorld (void)
 	R_EndDebugUtilsLabel ();
 }
 
+void RT_LoadDynamicWorldIndices() {
+	if (!r_drawworld_cheatsafe)
+		return;
+	R_BeginDebugUtilsLabel("Dynamic World Indices");
+	// unlike this method says, world indices are dynamic. might change in future
+	RT_LoadBrushModelIndices(cl.worldmodel, NULL, chain_world, 1);
+	R_EndDebugUtilsLabel();
+}
 
 /*
 =============
-R_FillWorldModelData -- russeln -- return model data (vertex, index and texture buffer) from brush model in correct format (rt_vertex_s)
+RT_LoadStaticWorldGeometry -- russeln -- return model data (vertex, index and texture buffer) from brush model in modified format (rt_vertex_s)
 =============
 */
-void R_FillWorldModelData() {
+void RT_LoadStaticWorldGeometry() {
 	if (!r_drawworld_cheatsafe)
 		return;
 
-	R_BeginDebugUtilsLabel("World BLAS");
-	R_CreateRTVertexBuffer();
-	R_GetBrushModelData_RTX(cl.worldmodel, NULL, chain_world, 1);
+	R_BeginDebugUtilsLabel("World Vertices");
+	RT_LoadStaticWorldVertices();
 	R_EndDebugUtilsLabel();
 }
 
