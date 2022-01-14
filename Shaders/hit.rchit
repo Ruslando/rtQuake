@@ -43,7 +43,7 @@ layout(scalar, set = 0, binding = 8) readonly buffer ModelInfoBuffer {ModelInfo[
 //layout(scalar, set = 0, binding = 9) readonly buffer LightEntitiesBuffer {LightEntity[] l;} lightEntitiesBuffer;
 //layout(set = 0, binding = 10) uniform LightEntityIndicesBuffer {uint16_t [] li; } lightEntityIndices;
 
-Vertex getVertex(int index, int instanceId){
+Vertex getVertex(uint index, int instanceId){
 	if(instanceId == 0){
 		return staticVertexBuffer.sv[index];
 	}
@@ -52,11 +52,11 @@ Vertex getVertex(int index, int instanceId){
 	}
 }
 
-uvec3 getIndices(int primitiveId){
+uvec3 getIndices(int primitiveId, int instanceId){
 	int primitive_index = primitiveId * 3;
 
 	if(instanceId == 0){
-		return uvec3(staticIndexBuffer.i[primitive_index].index,
+		return uvec3(staticIndexBuffer.si[primitive_index].index,
 		staticIndexBuffer.si[primitive_index + 1].index,
 		staticIndexBuffer.si[primitive_index + 2].index);
 	}
@@ -74,11 +74,11 @@ void main()
 	const vec3 barycentrics = vec3(1.0 - hitCoordinate.x - hitCoordinate.y, hitCoordinate.x, hitCoordinate.y);
 	const vec3 worldPos = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT; // not precise
 	
-	uvec3 indices = getIndices(primitiveId);
+	uvec3 indices = getIndices(primitiveId, instanceId);
 	
-	Vertex v1 = vertexBuffer.v[indices.x];
-	Vertex v2 = vertexBuffer.v[indices.y];
-	Vertex v3 = vertexBuffer.v[indices.z];
+	Vertex v1 = getVertex(indices.x, instanceId);
+	Vertex v2 = getVertex(indices.y, instanceId);
+	Vertex v3 = getVertex(indices.z, instanceId);
 	
 	ModelInfo modelInfo = modelInfoBuffer.m[v1.vertex_model];
 

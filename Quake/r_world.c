@@ -663,12 +663,13 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 	int current_blas_index = vulkan_globals.rt_current_blas_index;
 
 	// static vertex buffer
-	void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_static_vertex_buffer);
-	rt_vertex_t* vertex_data_pointer = (rt_vertex_t*)vertex_buffer_data;
+	/*void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_static_vertex_buffer);
+	rt_vertex_t* vertex_data_pointer = (rt_vertex_t*)vertex_buffer_data;*/
 
 	uint16_t* index_data_pointer = (uint16_t*)malloc(16000 * sizeof(uint16_t));
 	
 	for (i = 0; i < model->numtextures; ++i)
+	//for (i = 0; i < 1; ++i)
 	{
 		t = model->textures[i];
 
@@ -722,9 +723,9 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 
 
 
-		for (int j = vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count; j < index_count; j++) {
+		/*for (int j = vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count; j < index_count; j++) {
 			vertex_data_pointer[index_data_pointer[j]].model_shader_data_index = vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count;
-		}
+		}*/
 
 		model_shader.texture_buffer_offset_index = tx_imageview_index;
 		model_shader.texture_buffer_fullbright_offset_index = fb_imageview_index;
@@ -736,7 +737,7 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 	}
 
 	num_vbo_indices = 0;
-	buffer_unmap(&vulkan_globals.rt_static_vertex_buffer);
+	//buffer_unmap(&vulkan_globals.rt_static_vertex_buffer);
 
 	VkBuffer dynamic_index_buffer;
 	VkDeviceSize dynamic_index_buffer_offset;

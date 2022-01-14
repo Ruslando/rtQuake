@@ -1604,7 +1604,7 @@ static void GL_CreateColorBuffer(void)
 
 		GL_SetObjectName((uint64_t)color_buffers_view[i], VK_OBJECT_TYPE_IMAGE_VIEW, va("Color Buffer View %d", i));
 	}
-	vulkan_globals.raygen_desc_set_items.output_image_view = color_buffers_view[0];
+	vulkan_globals.output_image_view = color_buffers_view[0];
 
 	vulkan_globals.sample_count = VK_SAMPLE_COUNT_1_BIT;
 	vulkan_globals.supersampling = false;

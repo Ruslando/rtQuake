@@ -55,6 +55,8 @@ extern	int glx, gly, glwidth, glheight;
 
 #define FAN_INDEX_BUFFER_SIZE 126
 
+#define FRAMES_IN_FLIGHT 2
+
 void R_TimeRefresh_f(void);
 void R_ReadPointFile_f(void);
 texture_t* R_TextureAnimation(texture_t* base, int frame);
@@ -255,12 +257,6 @@ typedef struct rt_light_entity_shader_s {
 	vec4_t light_clamp;
 } rt_light_entity_shader_t;
 
-
-typedef struct raygen_desc_set_items_s {
-	VkImageView output_image_view;
-	accel_struct_t tlas;
-}raygen_desc_set_items_t;
-
 typedef struct vulkan_pipeline_layout_s {
 	VkPipelineLayout		handle;
 	VkPushConstantRange		push_constant_range;
@@ -309,23 +305,21 @@ typedef struct
 	qboolean							non_solid_fill;
 	qboolean							screen_effects_sops;
 
-	// Raygen descriptor set items
-	raygen_desc_set_items_t				raygen_desc_set_items;
-
 	// BLAS
-	accel_struct_t						blas_instance;
+	accel_struct_t						blas_instances[FRAMES_IN_FLIGHT];
 
 	// TLAS
-	accel_struct_t						tlas_instance;
+	accel_struct_t						tlas_instances[FRAMES_IN_FLIGHT];
 
 	// Scratch buffer
 	int									scratch_buffer_pointer;
 	BufferResource_t					acceleration_structure_scratch_buffer;
 	
+	VkImageView							output_image_view;
 
 	// RT Buffers
 	int									as_instances_pointer;
-	BufferResource_t					as_instances;
+	BufferResource_t					as_instances[FRAMES_IN_FLIGHT];
 
 	// TODO: Replace most buffers with the dynamic buffers made in rtquake
 	BufferResource_t					rt_static_vertex_buffer;
@@ -333,7 +327,7 @@ typedef struct
 
 	// May be used later, for loading whole level for example.
 	//VkBuffer							rt_static_index_buffer;
-	VkBuffer							rt_dynamic_index_buffer;
+	VkBuffer							rt_index_buffer;
 
 	BufferResource_t					rt_uniform_buffer;
 
@@ -704,14 +698,15 @@ void* buffer_map(BufferResource_t* buf);
 void buffer_unmap(BufferResource_t* buf);
 
 // path tracing
-VkResult R_UpdateRaygenDescriptorSet();
+void R_InitializeRaygenDescriptorSets();
+VkResult R_UpdateRaygenDescriptorSets();
 
 // Acceleration structures
 // Creates bottom level acceleration strucuture (BLAS)
 void R_Create_BLAS_Instance(int blas_index, VkBuffer vertex_buffer,
 	uint32_t vertex_offset, uint32_t num_vertices, uint32_t num_triangles, uint32_t stride,
 	VkBuffer index_buffer, uint32_t num_indices, uint32_t index_offset, VkFormat format, VkIndexType index_type, VkBuffer transform_data);
-void R_Create_TLAS();
+void R_Create_TLAS(int num_instances);
 int accel_matches(accel_match_info_t* match, int fast_build,uint32_t vertex_count,uint32_t index_count);
 int accel_matches_top_level(accel_match_info_t* match, int fast_build, uint32_t instance_count);
 void destroy_accel_struct(accel_struct_t* blas);

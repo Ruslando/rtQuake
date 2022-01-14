@@ -411,6 +411,15 @@ void TexMgr_LoadActiveTextures(void)
 		VkDescriptorImageInfo* texture_list_data = (VkDescriptorImageInfo*)malloc(image_count * sizeof(VkDescriptorImageInfo));
 		memcpy(texture_list_data, texture_image_infos, image_count * sizeof(VkDescriptorImageInfo));
 
+		// They may be empty imageviews, but i still have to set a valid sampler and image layout 
+		for (int i = 0; i < image_count; i++) {
+			VkDescriptorImageInfo image_info = texture_list_data[i];
+			if (image_info.sampler == NULL) {
+				texture_list_data[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				texture_list_data[i].sampler = vulkan_globals.linear_sampler_lod_bias;
+			}
+		}
+
 		vulkan_globals.texture_list = texture_list_data;
 		vulkan_globals.texture_list_count = image_count;
 
