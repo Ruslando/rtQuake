@@ -831,7 +831,8 @@ void R_InitTraceRays(void)
 {
 	R_BindPipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline);
 	// Probably have to include other descriptor sets too
-	vulkan_globals.vk_cmd_bind_descriptor_sets(vulkan_globals.command_buffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline.layout.handle, 0, 1, &vulkan_globals.raygen_desc_set, 0, VK_NULL_HANDLE);
+
+	vulkan_globals.vk_cmd_bind_descriptor_sets(vulkan_globals.command_buffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline.layout.handle, 0, 1, &vulkan_globals.raygen_desc_set[vulkan_globals.current_command_buffer], 0, VK_NULL_HANDLE);
 
 	vulkan_globals.fpCmdTraceRaysKHR(vulkan_globals.command_buffer, &vulkan_globals.rt_gen_region, &vulkan_globals.rt_miss_region, &vulkan_globals.rt_hit_region, &vulkan_globals.rt_call_region,
 		1280, 720, 1);
@@ -942,72 +943,43 @@ void R_Create_TLAS(int num_instances) {
 	vulkan_globals.fpCmdBuildAccelerationStructuresKHR(vulkan_globals.command_buffer, 1, &buildInfo, build_range_infos);
 }
 
-void R_InitializeRaygenDescriptorSets() {
-	if (vulkan_globals.raygen_desc_set == NULL) {
-		vulkan_globals.raygen_desc_set = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
-
-		// output image info
-		VkDescriptorImageInfo pt_output_image_info;
-		memset(&pt_output_image_info, 0, sizeof(VkDescriptorImageInfo));
-		// give access to image buffer view from vidsl 
-		pt_output_image_info.imageView = vulkan_globals.output_image_view;
-		pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-		// uniform buffer (camera matrices)
-		VkDescriptorBufferInfo bufferInfo;
-		memset(&bufferInfo, 0, sizeof(VkDescriptorBufferInfo));
-		bufferInfo.buffer = vulkan_globals.rt_uniform_buffer.buffer;
-		bufferInfo.offset = 0;
-		bufferInfo.range = VK_WHOLE_SIZE;
-
-		//VkWriteDescriptorSet raygen_writes[4];
-		VkWriteDescriptorSet raygen_writes[2];
-		memset(&raygen_writes, 0, sizeof(raygen_writes));
-
-		raygen_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		raygen_writes[0].dstBinding = 1;
-		raygen_writes[0].descriptorCount = 1;
-		raygen_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-		raygen_writes[0].dstSet = vulkan_globals.raygen_desc_set;
-		raygen_writes[0].pImageInfo = &pt_output_image_info;
-
-		raygen_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		raygen_writes[1].dstBinding = 2;
-		raygen_writes[1].descriptorCount = 1;
-		raygen_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		raygen_writes[1].dstSet = vulkan_globals.raygen_desc_set;
-		raygen_writes[1].pBufferInfo = &bufferInfo;
-
-		/*raygen_writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		raygen_writes[3].dstBinding = 7;
-		raygen_writes[3].descriptorCount = vulkan_globals.texture_list_count;
-		raygen_writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		raygen_writes[3].dstSet = vulkan_globals.raygen_desc_set;
-		raygen_writes[3].pImageInfo = vulkan_globals.texture_list;*/
-
-		vkUpdateDescriptorSets(vulkan_globals.device, 2, raygen_writes, 0, NULL);
-		//vkUpdateDescriptorSets(vulkan_globals.device, 4, raygen_writes, 0, NULL);
-	}
-	
-}
-
 VkResult R_UpdateRaygenDescriptorSets()
-{
-	if (vulkan_globals.raygen_desc_set == NULL) {
-		vulkan_globals.raygen_desc_set = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
+{	
+	/*vkFreeDescriptorSets(vulkan_globals.device, vulkan_globals.descriptor_pool, 1, &vulkan_globals.raygen_desc_set);
+	vulkan_globals.raygen_desc_set = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);*/
+
+	int current_frame_index = vulkan_globals.current_command_buffer;
+
+	if (vulkan_globals.raygen_desc_set[current_frame_index] == VK_NULL_HANDLE) {
+		vulkan_globals.raygen_desc_set[current_frame_index] = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
 	}
+
+	// output image info
+	VkDescriptorImageInfo pt_output_image_info;
+	memset(&pt_output_image_info, 0, sizeof(VkDescriptorImageInfo));
+	// give access to image buffer view from vidsl 
+	//pt_output_image_info.imageView = vulkan_globals.output_image_view[vulkan_globals.current_command_buffer];
+	pt_output_image_info.imageView = vulkan_globals.output_image_view[0];
+	pt_output_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
 	// top level acceleration structure info
 	VkWriteDescriptorSetAccelerationStructureKHR desc_accel_struct;
 	memset(&desc_accel_struct, 0, sizeof(VkWriteDescriptorSetAccelerationStructureKHR));
 	desc_accel_struct.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
 	desc_accel_struct.accelerationStructureCount = 1;
-	desc_accel_struct.pAccelerationStructures = &vulkan_globals.tlas_instances[vulkan_globals.current_command_buffer].accel;
+	desc_accel_struct.pAccelerationStructures = &vulkan_globals.tlas_instances[current_frame_index].accel;
+
+	// uniform buffer (camera matrices)
+	VkDescriptorBufferInfo bufferInfo;
+	memset(&bufferInfo, 0, sizeof(VkDescriptorBufferInfo));
+	bufferInfo.buffer = vulkan_globals.rt_uniform_buffer.buffer;
+	bufferInfo.offset = 0;
+	bufferInfo.range = VK_WHOLE_SIZE;
 
 	// static vertex buffer
 	VkDescriptorBufferInfo static_vertex_buffer_info;
 	memset(&static_vertex_buffer_info, 0, sizeof(VkDescriptorBufferInfo));
-	static_vertex_buffer_info.buffer = vulkan_globals.rt_static_vertex_buffer[vulkan_globals.current_command_buffer].buffer;
+	static_vertex_buffer_info.buffer = vulkan_globals.rt_static_vertex_buffer[current_frame_index].buffer;
 	static_vertex_buffer_info.offset = 0;
 	static_vertex_buffer_info.range = VK_WHOLE_SIZE;
 
@@ -1058,49 +1030,70 @@ VkResult R_UpdateRaygenDescriptorSets()
 	//lightEntitiesIndexListBufferInfo.offset = 0;
 	//lightEntitiesIndexListBufferInfo.range = VK_WHOLE_SIZE;
 
-	VkWriteDescriptorSet raygen_writes[6];
+	VkWriteDescriptorSet raygen_writes[9];
 	memset(&raygen_writes, 0, sizeof(raygen_writes));
 	raygen_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	raygen_writes[0].pNext = &desc_accel_struct;
 	raygen_writes[0].dstBinding = 0;
 	raygen_writes[0].descriptorCount = 1;
 	raygen_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-	raygen_writes[0].dstSet = vulkan_globals.raygen_desc_set;
+	raygen_writes[0].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
 
 	raygen_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[1].dstBinding = 3;
+	raygen_writes[1].dstBinding = 1;
 	raygen_writes[1].descriptorCount = 1;
-	raygen_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	raygen_writes[1].dstSet = vulkan_globals.raygen_desc_set;
-	raygen_writes[1].pBufferInfo = &static_vertex_buffer_info;
+	raygen_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	raygen_writes[1].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
+	raygen_writes[1].pImageInfo = &pt_output_image_info;
 
 	raygen_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[2].dstBinding = 4;
+	raygen_writes[2].dstBinding = 2;
 	raygen_writes[2].descriptorCount = 1;
-	raygen_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	raygen_writes[2].dstSet = vulkan_globals.raygen_desc_set;
-	raygen_writes[2].pBufferInfo = &dynamic_vertex_buffer_info;
+	raygen_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	raygen_writes[2].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
+	raygen_writes[2].pBufferInfo = &bufferInfo;
 
 	raygen_writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[3].dstBinding = 5;
+	raygen_writes[3].dstBinding = 3;
 	raygen_writes[3].descriptorCount = 1;
 	raygen_writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	raygen_writes[3].dstSet = vulkan_globals.raygen_desc_set;
-	raygen_writes[3].pBufferInfo = &static_index_buffer_info;
+	raygen_writes[3].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
+	raygen_writes[3].pBufferInfo = &static_vertex_buffer_info;
 
 	raygen_writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[4].dstBinding = 6;
+	raygen_writes[4].dstBinding = 4;
 	raygen_writes[4].descriptorCount = 1;
 	raygen_writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	raygen_writes[4].dstSet = vulkan_globals.raygen_desc_set;
-	raygen_writes[4].pBufferInfo = &dynamic_index_buffer_info;
+	raygen_writes[4].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
+	raygen_writes[4].pBufferInfo = &dynamic_vertex_buffer_info;
 
 	raygen_writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[5].dstBinding = 8;
+	raygen_writes[5].dstBinding = 5;
 	raygen_writes[5].descriptorCount = 1;
 	raygen_writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	raygen_writes[5].dstSet = vulkan_globals.raygen_desc_set;
-	raygen_writes[5].pBufferInfo = &modelInfoBufferInfo;
+	raygen_writes[5].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
+	raygen_writes[5].pBufferInfo = &static_index_buffer_info;
+				  
+	raygen_writes[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[6].dstBinding = 6;
+	raygen_writes[6].descriptorCount = 1;
+	raygen_writes[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_writes[6].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
+	raygen_writes[6].pBufferInfo = &dynamic_index_buffer_info;
+
+	raygen_writes[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[7].dstBinding = 7;
+	raygen_writes[7].descriptorCount = vulkan_globals.texture_list_count;
+	raygen_writes[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	raygen_writes[7].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
+	raygen_writes[7].pImageInfo = vulkan_globals.texture_list;
+
+	raygen_writes[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[8].dstBinding = 8;
+	raygen_writes[8].descriptorCount = 1;
+	raygen_writes[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_writes[8].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
+	raygen_writes[8].pBufferInfo = &modelInfoBufferInfo;
 
 	/*raygen_writes[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	raygen_writes[8].dstBinding = 8;
@@ -1116,7 +1109,7 @@ VkResult R_UpdateRaygenDescriptorSets()
 	raygen_writes[9].dstSet = vulkan_globals.raygen_desc_set;
 	raygen_writes[9].pBufferInfo = &lightEntitiesIndexListBufferInfo;*/
 
-	vkUpdateDescriptorSets(vulkan_globals.device, 6, raygen_writes, 0, NULL);
+	vkUpdateDescriptorSets(vulkan_globals.device, 9, raygen_writes, 0, NULL);
 
 	return VK_SUCCESS;
 }
@@ -1347,9 +1340,6 @@ void R_RenderScene_RTX(void)
 
 	// Creating acceleration structure instances
 
-	VkFormat rgb32float = VK_FORMAT_R32G32B32_SFLOAT;
-	VkIndexType uint16 = VK_INDEX_TYPE_UINT16;
-
 	VkMemoryBarrier memoryBarrier;
 	memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
 	memoryBarrier.pNext = VK_NULL_HANDLE;
@@ -1365,7 +1355,7 @@ void R_RenderScene_RTX(void)
 		static_blas.vertex_buffer_offset, static_blas.vertex_count,
 		static_blas.index_count / 3, sizeof(rt_vertex_t), vulkan_globals.rt_index_buffer,
 		static_blas.index_count, static_blas.index_buffer_offset,
-		rgb32float, uint16, static_blas.transform_data_buffer);
+		VK_FORMAT_R32G32B32_SFLOAT, VK_INDEX_TYPE_UINT16, static_blas.transform_data_buffer);
 	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
 
 	// dynamic model blas
@@ -1380,9 +1370,6 @@ void R_RenderScene_RTX(void)
 	R_Create_TLAS(1);
 	//R_Create_TLAS(blas_count);
 	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
-
-	// TODO: Move to other place;
-	R_InitializeRaygenDescriptorSets();
 
 	R_UpdateRaygenDescriptorSets();
 

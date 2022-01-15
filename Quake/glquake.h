@@ -315,7 +315,7 @@ typedef struct
 	int									scratch_buffer_pointer;
 	BufferResource_t					acceleration_structure_scratch_buffer;
 	
-	VkImageView							output_image_view;
+	VkImageView							output_image_view[FRAMES_IN_FLIGHT];
 
 	// RT Buffers
 	int									as_instances_pointer;
@@ -440,7 +440,7 @@ typedef struct
 	vulkan_desc_set_layout_t			screen_warp_set_layout;
 	vulkan_desc_set_layout_t			single_texture_cs_write_set_layout;
 	vulkan_desc_set_layout_t			model_vertex_set_layout;
-	VkDescriptorSet						raygen_desc_set;
+	VkDescriptorSet						raygen_desc_set[FRAMES_IN_FLIGHT];
 	vulkan_desc_set_layout_t			raygen_set_layout;
 
 	// Ray generation shader regions
@@ -726,6 +726,9 @@ static inline void R_BindPipeline(VkPipelineBindPoint bind_point, vulkan_pipelin
 			|| (vulkan_globals.current_pipeline.layout.push_constant_range.size != pipeline.layout.push_constant_range.size))
 			vulkan_globals.vk_cmd_push_constants(vulkan_globals.command_buffer, pipeline.layout.handle, pipeline.layout.push_constant_range.stageFlags, 0, pipeline.layout.push_constant_range.size, zeroes);
 		vulkan_globals.current_pipeline = pipeline;
+	}
+	else {
+		vulkan_globals.vk_cmd_bind_pipeline(vulkan_globals.command_buffer, bind_point, pipeline.handle);
 	}
 }
 

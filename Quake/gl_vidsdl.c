@@ -1603,8 +1603,9 @@ static void GL_CreateColorBuffer(void)
 			Sys_Error("vkCreateImageView failed");
 
 		GL_SetObjectName((uint64_t)color_buffers_view[i], VK_OBJECT_TYPE_IMAGE_VIEW, va("Color Buffer View %d", i));
+
+		vulkan_globals.output_image_view[i] = color_buffers_view[i];
 	}
-	vulkan_globals.output_image_view = color_buffers_view[0];
 
 	vulkan_globals.sample_count = VK_SAMPLE_COUNT_1_BIT;
 	vulkan_globals.supersampling = false;
@@ -2076,7 +2077,7 @@ static void GL_CreateFrameBuffers(void)
 		framebuffer_create_info.height = vid.height;
 		framebuffer_create_info.layers = 1;
 
-		VkImageView rt_attachments[1] = { color_buffers_view[1] };
+		VkImageView rt_attachments[1] = { color_buffers_view[i] };
 		framebuffer_create_info.pAttachments = rt_attachments;
 
 		assert(raytrace_framebuffer[i] == VK_NULL_HANDLE);
@@ -2156,8 +2157,10 @@ static void GL_DestroyRenderResources(void)
 	R_FreeDescriptorSet(vulkan_globals.screen_warp_desc_set, &vulkan_globals.screen_warp_set_layout);
 	vulkan_globals.screen_warp_desc_set = VK_NULL_HANDLE;
 	
-	R_FreeDescriptorSet(vulkan_globals.raygen_desc_set, &vulkan_globals.raygen_set_layout);
-	vulkan_globals.raygen_desc_set = VK_NULL_HANDLE;
+	for(i = 0; i < FRAMES_IN_FLIGHT; ++i){
+		R_FreeDescriptorSet(vulkan_globals.raygen_desc_set[i], &vulkan_globals.raygen_set_layout);
+		vulkan_globals.raygen_desc_set[i] = VK_NULL_HANDLE;
+	}
 
 	if (msaa_color_buffer)
 	{
