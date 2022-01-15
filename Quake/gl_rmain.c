@@ -960,15 +960,8 @@ void R_InitializeRaygenDescriptorSets() {
 		bufferInfo.offset = 0;
 		bufferInfo.range = VK_WHOLE_SIZE;
 
-		// static vertex buffer
-		VkDescriptorBufferInfo static_vertex_buffer_info;
-		memset(&static_vertex_buffer_info, 0, sizeof(VkDescriptorBufferInfo));
-		static_vertex_buffer_info.buffer = vulkan_globals.rt_static_vertex_buffer.buffer;
-		static_vertex_buffer_info.offset = 0;
-		static_vertex_buffer_info.range = VK_WHOLE_SIZE;
-
 		//VkWriteDescriptorSet raygen_writes[4];
-		VkWriteDescriptorSet raygen_writes[3];
+		VkWriteDescriptorSet raygen_writes[2];
 		memset(&raygen_writes, 0, sizeof(raygen_writes));
 
 		raygen_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -985,13 +978,6 @@ void R_InitializeRaygenDescriptorSets() {
 		raygen_writes[1].dstSet = vulkan_globals.raygen_desc_set;
 		raygen_writes[1].pBufferInfo = &bufferInfo;
 
-		raygen_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		raygen_writes[2].dstBinding = 3;
-		raygen_writes[2].descriptorCount = 1;
-		raygen_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		raygen_writes[2].dstSet = vulkan_globals.raygen_desc_set;
-		raygen_writes[2].pBufferInfo = &static_vertex_buffer_info;
-
 		/*raygen_writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		raygen_writes[3].dstBinding = 7;
 		raygen_writes[3].descriptorCount = vulkan_globals.texture_list_count;
@@ -999,7 +985,7 @@ void R_InitializeRaygenDescriptorSets() {
 		raygen_writes[3].dstSet = vulkan_globals.raygen_desc_set;
 		raygen_writes[3].pImageInfo = vulkan_globals.texture_list;*/
 
-		vkUpdateDescriptorSets(vulkan_globals.device, 3, raygen_writes, 0, NULL);
+		vkUpdateDescriptorSets(vulkan_globals.device, 2, raygen_writes, 0, NULL);
 		//vkUpdateDescriptorSets(vulkan_globals.device, 4, raygen_writes, 0, NULL);
 	}
 	
@@ -1017,6 +1003,13 @@ VkResult R_UpdateRaygenDescriptorSets()
 	desc_accel_struct.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
 	desc_accel_struct.accelerationStructureCount = 1;
 	desc_accel_struct.pAccelerationStructures = &vulkan_globals.tlas_instances[vulkan_globals.current_command_buffer].accel;
+
+	// static vertex buffer
+	VkDescriptorBufferInfo static_vertex_buffer_info;
+	memset(&static_vertex_buffer_info, 0, sizeof(VkDescriptorBufferInfo));
+	static_vertex_buffer_info.buffer = vulkan_globals.rt_static_vertex_buffer[vulkan_globals.current_command_buffer].buffer;
+	static_vertex_buffer_info.offset = 0;
+	static_vertex_buffer_info.range = VK_WHOLE_SIZE;
 
 	// dynamic vertex buffer
 	VkDescriptorBufferInfo dynamic_vertex_buffer_info;
@@ -1065,7 +1058,7 @@ VkResult R_UpdateRaygenDescriptorSets()
 	//lightEntitiesIndexListBufferInfo.offset = 0;
 	//lightEntitiesIndexListBufferInfo.range = VK_WHOLE_SIZE;
 
-	VkWriteDescriptorSet raygen_writes[5];
+	VkWriteDescriptorSet raygen_writes[6];
 	memset(&raygen_writes, 0, sizeof(raygen_writes));
 	raygen_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	raygen_writes[0].pNext = &desc_accel_struct;
@@ -1075,32 +1068,39 @@ VkResult R_UpdateRaygenDescriptorSets()
 	raygen_writes[0].dstSet = vulkan_globals.raygen_desc_set;
 
 	raygen_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[1].dstBinding = 4;
+	raygen_writes[1].dstBinding = 3;
 	raygen_writes[1].descriptorCount = 1;
 	raygen_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	raygen_writes[1].dstSet = vulkan_globals.raygen_desc_set;
-	raygen_writes[1].pBufferInfo = &dynamic_vertex_buffer_info;
+	raygen_writes[1].pBufferInfo = &static_vertex_buffer_info;
 
 	raygen_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[2].dstBinding = 5;
+	raygen_writes[2].dstBinding = 4;
 	raygen_writes[2].descriptorCount = 1;
 	raygen_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	raygen_writes[2].dstSet = vulkan_globals.raygen_desc_set;
-	raygen_writes[2].pBufferInfo = &static_index_buffer_info;
+	raygen_writes[2].pBufferInfo = &dynamic_vertex_buffer_info;
 
 	raygen_writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[3].dstBinding = 6;
+	raygen_writes[3].dstBinding = 5;
 	raygen_writes[3].descriptorCount = 1;
 	raygen_writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	raygen_writes[3].dstSet = vulkan_globals.raygen_desc_set;
-	raygen_writes[3].pBufferInfo = &dynamic_index_buffer_info;
+	raygen_writes[3].pBufferInfo = &static_index_buffer_info;
 
 	raygen_writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[4].dstBinding = 8;
+	raygen_writes[4].dstBinding = 6;
 	raygen_writes[4].descriptorCount = 1;
 	raygen_writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	raygen_writes[4].dstSet = vulkan_globals.raygen_desc_set;
-	raygen_writes[4].pBufferInfo = &modelInfoBufferInfo;
+	raygen_writes[4].pBufferInfo = &dynamic_index_buffer_info;
+
+	raygen_writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[5].dstBinding = 8;
+	raygen_writes[5].descriptorCount = 1;
+	raygen_writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_writes[5].dstSet = vulkan_globals.raygen_desc_set;
+	raygen_writes[5].pBufferInfo = &modelInfoBufferInfo;
 
 	/*raygen_writes[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	raygen_writes[8].dstBinding = 8;
@@ -1116,7 +1116,7 @@ VkResult R_UpdateRaygenDescriptorSets()
 	raygen_writes[9].dstSet = vulkan_globals.raygen_desc_set;
 	raygen_writes[9].pBufferInfo = &lightEntitiesIndexListBufferInfo;*/
 
-	vkUpdateDescriptorSets(vulkan_globals.device, 5, raygen_writes, 0, NULL);
+	vkUpdateDescriptorSets(vulkan_globals.device, 6, raygen_writes, 0, NULL);
 
 	return VK_SUCCESS;
 }
@@ -1244,22 +1244,6 @@ void R_Create_BLAS_Instance(int blas_index, VkBuffer vertex_buffer,
 
 void RT_InitializeDynamicBuffers(void){
 
-	// Allocate an empty amount of space to get the dynamic buffer offset for dynamic geometry data
-	VkBuffer dynamic_vertex_buffer;
-	VkDeviceSize dynamic_vertex_buffer_offset;
-	R_VertexAllocate(0, &dynamic_vertex_buffer, &dynamic_vertex_buffer_offset);
-
-	vulkan_globals.rt_dynamic_vertex_buffer = dynamic_vertex_buffer;
-
-	VkBuffer dynamic_index_buffer;
-	VkDeviceSize dynamic_index_buffer_offset;
-	R_IndexAllocate(0, &dynamic_index_buffer, &dynamic_index_buffer_offset);
-
-	vulkan_globals.rt_index_buffer = dynamic_index_buffer;
-}
-
-void RT_LoadDynamicWorldGeometry(void) {
-
 	int current_blas_index = vulkan_globals.rt_current_blas_index;
 
 	// Allocate an empty amount of space to get the dynamic buffer offset for dynamic geometry data
@@ -1267,13 +1251,18 @@ void RT_LoadDynamicWorldGeometry(void) {
 	VkDeviceSize dynamic_vertex_buffer_offset;
 	R_VertexAllocate(0, &dynamic_vertex_buffer, &dynamic_vertex_buffer_offset);
 
+	vulkan_globals.rt_dynamic_vertex_buffer = dynamic_vertex_buffer;
 	vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_buffer_offset = dynamic_vertex_buffer_offset;
 
 	VkBuffer dynamic_index_buffer;
 	VkDeviceSize dynamic_index_buffer_offset;
 	R_IndexAllocate(0, &dynamic_index_buffer, &dynamic_index_buffer_offset);
 
+	vulkan_globals.rt_index_buffer = dynamic_index_buffer;
 	vulkan_globals.rt_blas_data_pointer[current_blas_index].index_buffer_offset = dynamic_index_buffer_offset;
+}
+
+void RT_LoadDynamicWorldGeometry(void) {
 
 	RT_LoadDynamicWorldIndices();
 
@@ -1372,7 +1361,7 @@ void R_RenderScene_RTX(void)
 
 	// static model blas
 	rt_blas_data_t static_blas = blas_data[0];
-	R_Create_BLAS_Instance(0, vulkan_globals.rt_static_vertex_buffer.buffer,
+	R_Create_BLAS_Instance(0, vulkan_globals.rt_static_vertex_buffer[vulkan_globals.current_command_buffer].buffer,
 		static_blas.vertex_buffer_offset, static_blas.vertex_count,
 		static_blas.index_count / 3, sizeof(rt_vertex_t), vulkan_globals.rt_index_buffer,
 		static_blas.index_count, static_blas.index_buffer_offset,

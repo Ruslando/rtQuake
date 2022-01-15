@@ -574,17 +574,20 @@ void RT_LoadStaticWorldVertices() {
 	VkMemoryRequirements memory_requirements;
 	vkGetBufferMemoryRequirements(vulkan_globals.device, bmodel_vertex_buffer, &memory_requirements);
 	
-	if (vulkan_globals.rt_static_vertex_buffer.buffer == NULL) {
+	if (vulkan_globals.rt_static_vertex_buffer[0].buffer == NULL) {
 
 		VkDeviceSize vertex_data_size = 65536 * sizeof(rt_vertex_t);
 		// Vertex buffer allocation
-		if (vulkan_globals.rt_static_vertex_buffer.buffer == NULL) {
-			BufferResource_t rt_vertex_buffer_resource;
-			buffer_create(&rt_vertex_buffer_resource, vertex_data_size,
-				VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+		if (vulkan_globals.rt_static_vertex_buffer[0].buffer == NULL) {
 
-			vulkan_globals.rt_static_vertex_buffer = rt_vertex_buffer_resource;
+			for (int i = 0; i < FRAMES_IN_FLIGHT; i++) {
+				BufferResource_t rt_vertex_buffer_resource;
+				buffer_create(&rt_vertex_buffer_resource, vertex_data_size,
+					VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+				vulkan_globals.rt_static_vertex_buffer[i] = rt_vertex_buffer_resource;
+			}
 		}
 
 		//map buffer of bmodel vertex buffer and copy data to array
@@ -619,10 +622,12 @@ void RT_LoadStaticWorldVertices() {
 			vertex_data[j].model_shader_data_index = -1;
 		}
 
-		void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_static_vertex_buffer);
-		memcpy(vertex_buffer_data, vertex_data, maxVerts * sizeof(rt_vertex_t));
-		buffer_unmap(&vulkan_globals.rt_static_vertex_buffer);
 
+		for (int i = 0; i < FRAMES_IN_FLIGHT; i++) {
+			void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_static_vertex_buffer[i]);
+			memcpy(vertex_buffer_data, vertex_data, maxVerts * sizeof(rt_vertex_t));
+			buffer_unmap(&vulkan_globals.rt_static_vertex_buffer[i]);
+		}
 
 		free(vertex_data);
 
