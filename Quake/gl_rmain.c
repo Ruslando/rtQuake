@@ -1264,11 +1264,9 @@ void RT_LoadDynamicWorldGeometry(void) {
 
 }
 
-void RT_LoadDynamicAliasGeometry(void) {
-
-}
-
 void RT_SaveModelInfo(void) {
+
+	int current_blas_index = vulkan_globals.rt_current_blas_index;
 
 	int num_of_models = 0;
 
@@ -1283,7 +1281,13 @@ void RT_SaveModelInfo(void) {
 	VkDeviceSize dynamic_vertex_buffer_offset;
 	byte* vertices = R_VertexAllocate(allocate_size, &dynamic_vertex_buffer, &dynamic_vertex_buffer_offset);
 
+	vulkan_globals.rt_blas_data_pointer[current_blas_index].model_info_buffer_offset = dynamic_vertex_buffer_offset;
+
 	memcpy(vertices, vulkan_globals.rt_model_shader_pointer, allocate_size);
+}
+
+void RT_LoadDynamicAliasGeometry(void) {
+	R_DrawViewModel();
 }
 
 /*
@@ -1326,13 +1330,14 @@ void R_RenderScene_RTX(void)
 	vulkan_globals.rt_current_blas_index = 0;
 
 	rt_model_shader_data_t* model_shader_data = malloc(64 * sizeof(rt_model_shader_data_t));
-	//free(vulkan_globals.rt_model_shader_pointer);
 	vulkan_globals.rt_model_shader_pointer = model_shader_data;
 
 	RT_InitializeDynamicBuffers();
 
 	RT_LoadStaticWorldGeometry();
 	RT_LoadDynamicWorldGeometry();
+
+	RT_InitializeDynamicBuffers();
 
 	RT_LoadDynamicAliasGeometry();
 
@@ -1350,22 +1355,22 @@ void R_RenderScene_RTX(void)
 	//int blas_count = vulkan_globals.rt_current_blas_index + 1;
 
 	// static model blas
-	rt_blas_data_t static_blas = blas_data[0];
+	/*rt_blas_data_t static_blas = blas_data[0];
 	R_Create_BLAS_Instance(0, vulkan_globals.rt_static_vertex_buffer[vulkan_globals.current_command_buffer].buffer,
 		static_blas.vertex_buffer_offset, static_blas.vertex_count,
 		static_blas.index_count / 3, sizeof(rt_vertex_t), vulkan_globals.rt_index_buffer,
 		static_blas.index_count, static_blas.index_buffer_offset,
 		VK_FORMAT_R32G32B32_SFLOAT, VK_INDEX_TYPE_UINT16, static_blas.transform_data_buffer);
-	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
+	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);*/
 
 	// dynamic model blas
-	/*rt_blas_data_t dynamic_blas = blas_data[1];
+	rt_blas_data_t dynamic_blas = blas_data[1];
 	R_Create_BLAS_Instance(1, vulkan_globals.rt_dynamic_vertex_buffer,
 		dynamic_blas.vertex_buffer_offset, dynamic_blas.vertex_count,
 		dynamic_blas.index_count / 3, sizeof(rt_vertex_t), vulkan_globals.rt_index_buffer,
 		dynamic_blas.index_count, dynamic_blas.index_buffer_offset,
-		rgb32float, uint32, dynamic_blas.transform_data_buffer);
-	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);*/
+		VK_FORMAT_R32G32B32_SFLOAT, VK_INDEX_TYPE_UINT16, dynamic_blas.transform_data_buffer);
+	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
 
 	R_Create_TLAS(1);
 	//R_Create_TLAS(blas_count);
