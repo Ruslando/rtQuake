@@ -605,7 +605,9 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 		VkMemoryRequirements memory_requirements;
 		vkGetBufferMemoryRequirements(vulkan_globals.device, m->index_buffer, &memory_requirements);
 
-		uint32_t memory_type_index = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, 0);
+		//uint32_t memory_type_index = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+		uint32_t memory_type_index = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+		
 		VkDeviceSize heap_size = INDEX_HEAP_SIZE_MB * (VkDeviceSize)1024 * (VkDeviceSize)1024;
 		VkDeviceSize aligned_offset = GL_AllocateFromHeaps(&num_index_buffer_heaps, &index_buffer_heaps, heap_size, memory_type_index, memory_requirements.size,
 			memory_requirements.alignment, &m->index_heap, &m->index_heap_node, &num_vulkan_mesh_allocations, "Index Buffers");
@@ -703,7 +705,9 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 		VkMemoryRequirements memory_requirements;
 		vkGetBufferMemoryRequirements(vulkan_globals.device, m->vertex_buffer, &memory_requirements);
 
-		uint32_t memory_type_index = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT| VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, 0);
+		//uint32_t memory_type_index = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+		uint32_t memory_type_index = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+		
 		VkDeviceSize heap_size = VERTEX_HEAP_SIZE_MB * (VkDeviceSize)1024 * (VkDeviceSize)1024;
 		VkDeviceSize aligned_offset = GL_AllocateFromHeaps(&num_vertex_buffer_heaps, &vertex_buffer_heaps, heap_size, memory_type_index, memory_requirements.size,
 			memory_requirements.alignment, &m->vertex_heap, &m->vertex_heap_node, &num_vulkan_mesh_allocations, "Vertex Buffers");

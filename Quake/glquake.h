@@ -173,6 +173,11 @@ typedef struct accel_struct_s {
 	qboolean present;
 } accel_struct_t;
 
+typedef struct blas_instances_s {
+	accel_struct_t static_blas;
+	accel_struct_t dynamic_blas;
+} blas_instances_t;
+
 typedef struct raygen_uniform_second_s {
 	int* texture_index;
 }raygen_uniform_second_t;
@@ -305,8 +310,7 @@ typedef struct
 	qboolean							non_solid_fill;
 	qboolean							screen_effects_sops;
 
-	// BLAS
-	accel_struct_t						blas_instances[FRAMES_IN_FLIGHT];
+	blas_instances_t					blas_instances[FRAMES_IN_FLIGHT];
 
 	// TLAS
 	accel_struct_t						tlas_instances[FRAMES_IN_FLIGHT];
@@ -703,7 +707,7 @@ VkResult R_UpdateRaygenDescriptorSets();
 
 // Acceleration structures
 // Creates bottom level acceleration strucuture (BLAS)
-void R_Create_BLAS_Instance(int blas_index, VkBuffer vertex_buffer,
+void R_Create_BLAS_Instance(accel_struct_t* accel_struct, VkBuffer vertex_buffer,
 	uint32_t vertex_offset, uint32_t num_vertices, uint32_t num_triangles, uint32_t stride,
 	VkBuffer index_buffer, uint32_t num_indices, uint32_t index_offset, VkFormat format, VkIndexType index_type, VkBuffer transform_data);
 void R_Create_TLAS(int num_instances);

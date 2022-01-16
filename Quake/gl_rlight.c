@@ -341,10 +341,10 @@ void R_InitWorldLightEntities(void) {
 
 	if (vulkan_globals.rt_light_entities_buffer.buffer == NULL) {
 		buffer_create(&vulkan_globals.rt_light_entities_buffer, MAX_LIGHT_ENTITIES * sizeof(rt_light_entity_shader_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
 		buffer_create(&vulkan_globals.rt_light_entities_list_buffer, MAX_VISIBLE_LIGHT_ENTITIES * sizeof(uint16_t), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
 		vulkan_globals.rt_light_entities = (rt_light_entity_t*) malloc(MAX_LIGHT_ENTITIES * sizeof(rt_light_entity_t));
 		vulkan_globals.rt_light_entities_count = 0;
