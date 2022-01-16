@@ -40,8 +40,8 @@ layout(scalar, set = 0, binding = 5) readonly buffer StaticIndexBuffer {Indices[
 layout(scalar, set = 0, binding = 6) readonly buffer DynamicIndexBuffer {Indices[] di;} dynamicIndexBuffer;
 layout(set = 0, binding = 7) uniform sampler2D textures[];
 layout(scalar, set = 0, binding = 8) readonly buffer ModelInfoBuffer {ModelInfo[] m;} modelInfoBuffer;
-//layout(scalar, set = 0, binding = 9) readonly buffer LightEntitiesBuffer {LightEntity[] l;} lightEntitiesBuffer;
-//layout(set = 0, binding = 10) uniform LightEntityIndicesBuffer {uint16_t [] li; } lightEntityIndices;
+layout(scalar, set = 0, binding = 9) readonly buffer LightEntitiesBuffer {LightEntity[] l;} lightEntitiesBuffer;
+layout(set = 0, binding = 10) uniform LightEntityIndicesBuffer {uint16_t [] li; } lightEntityIndices;
 
 Vertex getVertex(uint index, int instanceId){
 	if(instanceId == 0){
@@ -82,7 +82,7 @@ void main()
 	
 	ModelInfo modelInfo = modelInfoBuffer.m[v1.vertex_model];
 
-	//vec3 outColor = vec3(0.0, 0.0, 0.0);
+	vec3 outColor = vec3(0.0, 0.0, 0.0);
 	
 	// texturing
 	vec2 tex_coords = v1.vertex_tx * barycentrics.x + v2.vertex_tx * barycentrics.y + v3.vertex_tx * barycentrics.z;
@@ -95,69 +95,69 @@ void main()
 		debugPrintfEXT("primitiveId: %i - index: %u - model number: %i - pos: %v3f ", primitiveId ,indices.x, v1.vertex_model, v1.vertex_pos);
 	}
 	
-	//outColor += texture_result.xyz;
+	outColor += texture_result.xyz;
 
-//	vec3 geometricNormal = normalize(cross(v2.vertex_pos - v1.vertex_pos, v3.vertex_pos - v1.vertex_pos));
-//	
-//	LightEntity lightEntity;
-//	vec3 lightDirection;
-//	float lightDistance;
-//	float lightIntensity;
-//	float attenuation;
-//	vec3 L ;
-//	vec3 L2;
-//
-//	float NdotL;
-//	float diffuse;
-//	float sumNdotL = 0;
-//
-//	// TODO: save number of indices somewhere
-//	for(int i = 1; i < 3; i++)
-//	{
-//		lightEntity = lightEntitiesBuffer.l[i];
-//		lightDirection = worldPos - lightEntity.origin_radius.xyz;	// usually other way around
-//		lightDistance = length(lightDirection);
-//		lightIntensity = (250 * 100) / (lightDistance * lightDistance);
-//		attenuation = 1;
-//		L = normalize(lightDirection);
-//		L2 = normalize(lightDirection *-1);
-//
-//		NdotL = dot(geometricNormal, L);
-//		float diffuse = lightIntensity * NdotL;
-//
-//		if(dot(geometricNormal, L2) < 0){
-//			float tMin   = 0.001;
-//			float tMax   = lightDistance;
-//			vec3  origin = worldPos;
-//			vec3  rayDir = L2; // flip ray direction
-//			uint  flags =
-//				gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
-//			isShadowed = true;
-//			traceRayEXT(topLevelAS,  // acceleration structure
-//					flags,       // rayFlags
-//					0xFF,        // cullMask
-//					0,           // sbtRecordOffset
-//					0,           // sbtRecordStride
-//					1,           // missIndex
-//					origin,      // ray origin
-//					tMin,        // ray min range
-//					rayDir,      // ray direction
-//					tMax,        // ray max range
-//					1            // payload (location = 1)
-//			);
-//
-//			if(isShadowed){
-//				attenuation = 0.3;
-//			}
-//		}
-//
-//		sumNdotL += diffuse * attenuation;
-//		
-//	}
-//
-//	outColor *= sumNdotL;
+	vec3 geometricNormal = normalize(cross(v2.vertex_pos - v1.vertex_pos, v3.vertex_pos - v1.vertex_pos));
+	
+	LightEntity lightEntity;
+	vec3 lightDirection;
+	float lightDistance;
+	float lightIntensity;
+	float attenuation;
+	vec3 L ;
+	vec3 L2;
+
+	float NdotL;
+	float diffuse;
+	float sumNdotL = 0;
+
+	// TODO: save number of indices somewhere
+	for(int i = 1; i < 3; i++)
+	{
+		lightEntity = lightEntitiesBuffer.l[i];
+		lightDirection = worldPos - lightEntity.origin_radius.xyz;	// usually other way around
+		lightDistance = length(lightDirection);
+		lightIntensity = (250 * 100) / (lightDistance * lightDistance);
+		attenuation = 1;
+		L = normalize(lightDirection);
+		L2 = normalize(lightDirection *-1);
+
+		NdotL = dot(geometricNormal, L);
+		float diffuse = lightIntensity * NdotL;
+
+		if(dot(geometricNormal, L2) < 0){
+			float tMin   = 0.001;
+			float tMax   = lightDistance;
+			vec3  origin = worldPos;
+			vec3  rayDir = L2; // flip ray direction
+			uint  flags =
+				gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+			isShadowed = true;
+			traceRayEXT(topLevelAS,  // acceleration structure
+					flags,       // rayFlags
+					0xFF,        // cullMask
+					0,           // sbtRecordOffset
+					0,           // sbtRecordStride
+					1,           // missIndex
+					origin,      // ray origin
+					tMin,        // ray min range
+					rayDir,      // ray direction
+					tMax,        // ray max range
+					1            // payload (location = 1)
+			);
+
+			if(isShadowed){
+				attenuation = 0.3;
+			}
+		}
+
+		sumNdotL += diffuse * attenuation;
+		
+	}
+
+	outColor *= sumNdotL;
 	
 	//debugPrintfEXT("primid: %i - instId: %i vertoff: %i - indoff: %i - txi: %i - fbi: %i", primitiveId, instanceId, modelInfo.vertex_offset, modelInfo.index_offset, modelInfo.texture_index, modelInfo.texture_fullbright_index);
 	
-	hitPayload = texture_result.xyz;
+	hitPayload = outColor;
 }
