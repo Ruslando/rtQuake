@@ -319,7 +319,8 @@ typedef struct
 	int									scratch_buffer_pointer;
 	BufferResource_t					acceleration_structure_scratch_buffer;
 	
-	VkImageView							output_image_view[FRAMES_IN_FLIGHT];
+	VkImageView						output_image_view[FRAMES_IN_FLIGHT];
+	//VkImageView							output_image_view;
 
 	// RT Buffers
 	int									as_instances_pointer;
