@@ -312,6 +312,7 @@ void R_SetupCameraMatrices_RTX()
 
 	InverseMatrix(vulkan_globals.view_matrix, inverse_matrices.view_inverse);
 	InverseMatrix(vulkan_globals.projection_matrix, inverse_matrices.proj_inverse);
+	inverse_matrices.frame = host_framecount;
 
 	R_BindPipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline);
 

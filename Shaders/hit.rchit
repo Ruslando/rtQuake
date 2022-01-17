@@ -5,10 +5,18 @@
 #extension GL_EXT_debug_printf : enable
 #extension GL_EXT_scalar_block_layout : enable
 
+struct HitPayload
+{
+    vec3 contribution;
+    vec3 position;
+    vec3 normal;
+    bool done;
+};
+
 hitAttributeEXT vec2 hitCoordinate;
 
-layout(location = 0) rayPayloadInEXT vec3 hitPayload;
-layout(location = 1) rayPayloadEXT bool isShadowed;
+layout(location = 0) rayPayloadInEXT HitPayload  hitPayload;
+layout(location = 1) rayPayloadEXT vec3 attribs;
 
 struct ModelInfo{
 	int texture_index;
@@ -72,7 +80,6 @@ void main()
 	const int primitiveId = gl_PrimitiveID;
 	const int instanceId = gl_InstanceCustomIndexEXT;
 	const vec3 barycentrics = vec3(1.0 - hitCoordinate.x - hitCoordinate.y, hitCoordinate.x, hitCoordinate.y);
-	const vec3 worldPos = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT; // not precise
 	
 	uvec3 indices = getIndices(primitiveId, instanceId);
 	
@@ -91,13 +98,15 @@ void main()
 		texture_result += texture(textures[modelInfo.texture_fullbright_index], tex_coords); // fullbright texture
 	}
 	
-	if(indices.x == 22339){
-		debugPrintfEXT("primitiveId: %i - index: %u - model number: %i - pos: %v3f ", primitiveId ,indices.x, v1.vertex_model, v1.vertex_pos);
-	}
-	
 	outColor += texture_result.xyz;
+	
+	vec3 position = v1.vertex_pos * barycentrics.x + v2.vertex_pos * barycentrics.y + v3.vertex_pos * barycentrics.z;
+	vec3 geometricNormal = normalize(cross(v2.vertex_pos - v1.vertex_pos, v3.vertex_pos - v1.vertex_pos)) * -1;
+	// vertices seem to be clock-wise, so the normal has to be inverted
+	
+	//debugPrintfEXT("pos calc: %v3f - world pos: %v3f", position, worldPos);
 
-	vec3 geometricNormal = normalize(cross(v2.vertex_pos - v1.vertex_pos, v3.vertex_pos - v1.vertex_pos));
+	//Light
 	
 	LightEntity lightEntity;
 	vec3 lightDirection;
@@ -105,59 +114,31 @@ void main()
 	float lightIntensity;
 	float attenuation;
 	vec3 L ;
-	vec3 L2;
 
 	float NdotL;
 	float diffuse;
 	float sumNdotL = 0;
 
 	// TODO: save number of indices somewhere
-	for(int i = 1; i < 3; i++)
+	for(int i = 0; i < 16; i++)
 	{
 		lightEntity = lightEntitiesBuffer.l[i];
-		lightDirection = worldPos - lightEntity.origin_radius.xyz;	// usually other way around
+		lightDirection = lightEntity.origin_radius.xyz - position; // TODO: check why this gives weird results although its correct
 		lightDistance = length(lightDirection);
 		lightIntensity = (250 * 100) / (lightDistance * lightDistance);
 		attenuation = 1;
 		L = normalize(lightDirection);
-		L2 = normalize(lightDirection *-1);
 
 		NdotL = dot(geometricNormal, L);
 		float diffuse = lightIntensity * NdotL;
 
-		if(dot(geometricNormal, L2) < 0){
-			float tMin   = 0.001;
-			float tMax   = lightDistance;
-			vec3  origin = worldPos;
-			vec3  rayDir = L2; // flip ray direction
-			uint  flags =
-				gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
-			isShadowed = true;
-			traceRayEXT(topLevelAS,  // acceleration structure
-					flags,       // rayFlags
-					0xFF,        // cullMask
-					0,           // sbtRecordOffset
-					0,           // sbtRecordStride
-					1,           // missIndex
-					origin,      // ray origin
-					tMin,        // ray min range
-					rayDir,      // ray direction
-					tMax,        // ray max range
-					1            // payload (location = 1)
-			);
-
-			if(isShadowed){
-				attenuation = 0.3;
-			}
-		}
-
 		sumNdotL += diffuse * attenuation;
-		
 	}
 
 	outColor *= sumNdotL;
-	
-	//debugPrintfEXT("primid: %i - instId: %i vertoff: %i - indoff: %i - txi: %i - fbi: %i", primitiveId, instanceId, modelInfo.vertex_offset, modelInfo.index_offset, modelInfo.texture_index, modelInfo.texture_fullbright_index);
-	
-	hitPayload = outColor;
+
+	// fill payload data
+	hitPayload.contribution *= outColor;
+	hitPayload.position = position; // adding slight offset to start position, so that ray doesnt hit the object at the start position
+	hitPayload.normal = geometricNormal;
 }
