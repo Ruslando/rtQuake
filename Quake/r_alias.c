@@ -508,6 +508,28 @@ void R_DrawAliasModel (entity_t *e) //(entity_t *e, qboolean rt)
 	VkDeviceSize animation_vertex_offset = GLARB_GetXYZOffset(paliashdr, lerpdata.pose2);
 	animation_vertex_offset;
 
+	//calculating texture index
+	int tx_imageview_index = -1;
+	int fb_imageview_index = -1;
+
+	if (tx) {
+		glheapnode_t* txheapnode = tx->heap_node;
+
+		while (txheapnode->prev != NULL) {
+			txheapnode = txheapnode->prev;
+			tx_imageview_index++;
+		}
+	}
+
+	if (fb) {
+		glheapnode_t* fbheapnode = fb->heap_node;
+
+		while (fbheapnode->prev != NULL) {
+			fbheapnode = fbheapnode->prev;
+			fb_imageview_index++;
+		}
+	}
+
 	void* vdata;
 	vkMapMemory(vulkan_globals.device, vertex_heapmemory, vertex_heapnode->offset, vertex_heapnode->size, 0, &vdata);
 	vkUnmapMemory(vulkan_globals.device, vertex_heapmemory);
@@ -532,8 +554,6 @@ void R_DrawAliasModel (entity_t *e) //(entity_t *e, qboolean rt)
 	VkBuffer dynamic_vertex_buffer;
 	VkDeviceSize dynamic_vertex_buffer_offset;
 	byte* vertex_pointer = R_VertexAllocate(maxVerts * sizeof(rt_vertex_t), &dynamic_vertex_buffer, &dynamic_vertex_buffer_offset);
-
-	clock_t start = clock();
 	
 	for (i = 0; i < maxVerts; i++) {
 		int offset = i * sizeof(float) * 2;
@@ -571,14 +591,12 @@ void R_DrawAliasModel (entity_t *e) //(entity_t *e, qboolean rt)
 		rt_vertex.vertex_fb_coords[0] = tx_float1.real;
 		rt_vertex.vertex_fb_coords[1] = tx_float2.real;
 		
-		rt_vertex.model_shader_data_index = current_model_count;
+		rt_vertex.tx_index = tx_imageview_index;
+		rt_vertex.fb_index = fb_imageview_index;
+		rt_vertex.material_index = -1; // future use
 
 		memcpy(vertex_pointer + i * sizeof(rt_vertex_t), &rt_vertex, sizeof(rt_vertex_t));
 	}
-
-	clock_t end = clock();
-	float seconds = (float)(end - start) / CLOCKS_PER_SEC;
-	seconds;
 
 	// Collects index data
 	VkDeviceMemory index_heapmemory = currententity->model->index_heap->memory;
@@ -590,55 +608,24 @@ void R_DrawAliasModel (entity_t *e) //(entity_t *e, qboolean rt)
 	uint16_t* idatacast = (uint16_t*)idata;
 
 	int current_index_count = current_blas_data.index_count;
+	current_index_count;
 	int current_vertex_count = current_blas_data.vertex_count;
 
-	int maxIndex = current_index_count + paliashdr->numindexes;
-
-	VkDeviceSize indices_allocate_size = paliashdr->numindexes * sizeof(uint16_t);
+	VkDeviceSize indices_allocate_size = paliashdr->numindexes * sizeof(uint32_t);
 
 	VkBuffer dynamic_index_buffer;
 	VkDeviceSize dynamic_index_buffer_offset;
 	byte* indices_pointer = R_IndexAllocate(indices_allocate_size, &dynamic_index_buffer, &dynamic_index_buffer_offset);
 
-	uint16_t* indices = (uint16_t*)malloc(indices_allocate_size);
-	for (int j = current_index_count; j < maxIndex; j++) {
-		int offset = (j + (maxIndex - current_index_count) - maxIndex);
-		indices[j] = idatacast[offset] + current_vertex_count;
+	uint32_t* indices = (uint32_t*)malloc(indices_allocate_size);
+	for (int j = 0; j < paliashdr->numindexes; j++) {
+		indices[j] = idatacast[j] + current_vertex_count;
 	}
 
 	memcpy(indices_pointer, indices, indices_allocate_size);
 
-	//calculating texture index
-	int tx_imageview_index = -1;
-	int fb_imageview_index = -1;
-
-	if (tx) {
-		glheapnode_t* txheapnode = tx->heap_node;
-
-		while (txheapnode->prev != NULL) {
-			txheapnode = txheapnode->prev;
-			tx_imageview_index++;
-		}
-	}
-
-	if (fb) {
-		glheapnode_t* fbheapnode = fb->heap_node;
-
-		while (fbheapnode->prev != NULL) {
-			fbheapnode = fbheapnode->prev;
-			fb_imageview_index++;
-		}
-	}
-
 	vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count += paliashdr->numindexes;
 	vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count += paliashdr->numverts_vbo;
-
-	rt_model_shader_data_t model_shader;
-
-	model_shader.texture_buffer_offset_index = tx_imageview_index;
-	model_shader.texture_buffer_fullbright_offset_index = fb_imageview_index;
-
-	vulkan_globals.rt_model_shader_pointer[current_model_count] = model_shader;
 	vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count += 1;
 	
 }

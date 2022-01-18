@@ -10,20 +10,13 @@ hitAttributeEXT vec2 hitCoordinate;
 layout(location = 0) rayPayloadInEXT vec3 hitPayload;
 layout(location = 1) rayPayloadEXT bool isShadowed;
 
-struct ModelInfo{
-	int texture_index;
-	int texture_fullbright_index;
-};
-
 struct Vertex{
 	vec3 vertex_pos;
 	vec2 vertex_tx;
 	vec2 vertex_fb;
-	int vertex_model;
-};
-
-struct Indices{
-	uint16_t index;
+	int	tx_index;
+	int fb_index;
+	int material_index;
 };
 
 struct LightEntity{
@@ -36,10 +29,9 @@ layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
 
 layout(scalar, set = 0, binding = 3) readonly buffer StaticVertexBuffer {Vertex[] sv;} staticVertexBuffer;
 layout(scalar, set = 0, binding = 4) readonly buffer DynamicVertexBuffer {Vertex[] dv;} dynamicVertexBuffer;
-layout(scalar, set = 0, binding = 5) readonly buffer StaticIndexBuffer {Indices[] si;} staticIndexBuffer;
-layout(scalar, set = 0, binding = 6) readonly buffer DynamicIndexBuffer {Indices[] di;} dynamicIndexBuffer;
+layout(scalar, set = 0, binding = 5) readonly buffer StaticIndexBuffer {uint16_t[] si;} staticIndexBuffer;
+layout(scalar, set = 0, binding = 6) readonly buffer DynamicIndexBuffer {uint32_t[] di;} dynamicIndexBuffer;
 layout(set = 0, binding = 7) uniform sampler2D textures[];
-layout(scalar, set = 0, binding = 8) readonly buffer ModelInfoBuffer {ModelInfo[] m;} modelInfoBuffer;
 //layout(scalar, set = 0, binding = 9) readonly buffer LightEntitiesBuffer {LightEntity[] l;} lightEntitiesBuffer;
 //layout(set = 0, binding = 10) uniform LightEntityIndicesBuffer {uint16_t [] li; } lightEntityIndices;
 
@@ -56,14 +48,14 @@ uvec3 getIndices(int primitiveId, int instanceId){
 	int primitive_index = primitiveId * 3;
 
 	if(instanceId == 0){
-		return uvec3(staticIndexBuffer.si[primitive_index].index,
-		staticIndexBuffer.si[primitive_index + 1].index,
-		staticIndexBuffer.si[primitive_index + 2].index);
+		return uvec3(staticIndexBuffer.si[primitive_index],
+		staticIndexBuffer.si[primitive_index + 1],
+		staticIndexBuffer.si[primitive_index + 2]);
 	}
 	else{
-		return uvec3(dynamicIndexBuffer.di[primitive_index].index,
-		dynamicIndexBuffer.di[primitive_index + 1].index,
-		dynamicIndexBuffer.di[primitive_index + 2].index);
+		return uvec3(dynamicIndexBuffer.di[primitive_index],
+		dynamicIndexBuffer.di[primitive_index + 1],
+		dynamicIndexBuffer.di[primitive_index + 2]);
 	}
 };
 
@@ -79,20 +71,18 @@ void main()
 	Vertex v1 = getVertex(indices.x, instanceId);
 	Vertex v2 = getVertex(indices.y, instanceId);
 	Vertex v3 = getVertex(indices.z, instanceId);
-	
-	ModelInfo modelInfo = modelInfoBuffer.m[v1.vertex_model];
 
-	//vec3 outColor = vec3(0.0, 0.0, 0.0);
+	vec4 outColor = vec4(0.0);
 	
 	// texturing
 	vec2 tex_coords = v1.vertex_tx * barycentrics.x + v2.vertex_tx * barycentrics.y + v3.vertex_tx * barycentrics.z;
-	vec4 texture_result = texture(textures[modelInfo.texture_index], tex_coords); // regular texture
-	if(modelInfo.texture_fullbright_index != -1){
-		texture_result += texture(textures[modelInfo.texture_fullbright_index], tex_coords); // fullbright texture
+	vec2 fb_coords = v1.vertex_fb * barycentrics.x + v2.vertex_fb * barycentrics.y + v3.vertex_fb * barycentrics.z;
+
+	if(v1.tx_index != -1){
+		outColor += texture(textures[v1.tx_index], tex_coords); // regular texture
 	}
-	
-	if(indices.x == 22339){
-		debugPrintfEXT("primitiveId: %i - index: %u - model number: %i - pos: %v3f ", primitiveId ,indices.x, v1.vertex_model, v1.vertex_pos);
+	if(v1.fb_index != -1){
+		outColor += texture(textures[v1.fb_index], fb_coords); // fullbright texture
 	}
 	
 	//outColor += texture_result.xyz;
@@ -159,5 +149,5 @@ void main()
 	
 	//debugPrintfEXT("primid: %i - instId: %i vertoff: %i - indoff: %i - txi: %i - fbi: %i", primitiveId, instanceId, modelInfo.vertex_offset, modelInfo.index_offset, modelInfo.texture_index, modelInfo.texture_fullbright_index);
 	
-	hitPayload = texture_result.xyz;
+	hitPayload = outColor.xyz;
 }

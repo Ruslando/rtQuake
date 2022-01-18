@@ -191,7 +191,9 @@ typedef struct rt_vertex_s {
 	float vertex_pos[3];
 	float vertex_tx_coords[2];
 	float vertex_fb_coords[2];
-	int	model_shader_data_index;
+	int	tx_index;
+	int fb_index;
+	int material_index;
 } rt_vertex_t;
 
 typedef struct rt_data_s {
@@ -319,7 +321,7 @@ typedef struct
 	int									scratch_buffer_pointer;
 	BufferResource_t					acceleration_structure_scratch_buffer;
 	
-	VkImageView						output_image_view[FRAMES_IN_FLIGHT];
+	VkImageView							output_image_view[FRAMES_IN_FLIGHT];
 	//VkImageView							output_image_view;
 
 	// RT Buffers
@@ -327,19 +329,19 @@ typedef struct
 	BufferResource_t					as_instances[FRAMES_IN_FLIGHT];
 
 	// TODO: Replace most buffers with the dynamic buffers made in rtquake
-	BufferResource_t					rt_static_vertex_buffer[2];
+	VkDeviceMemory						rt_static_vertex_memory;
+	VkBuffer							rt_static_vertex_buffer;
+	int									rt_static_vertex_count;
+
 	VkBuffer							rt_dynamic_vertex_buffer;
 
-	// May be used later, for loading whole level for example.
-	//VkBuffer							rt_static_index_buffer;
-	VkBuffer							rt_index_buffer;
+	VkDeviceMemory						rt_static_index_memory;
+	VkBuffer							rt_static_index_buffer;
+	int									rt_static_index_count;
+
+	VkBuffer							rt_dynamic_index_buffer;
 
 	BufferResource_t					rt_uniform_buffer;
-
-	// TODO: Maybe these buffers could be replaced by dynamic buffers as well. How do i safe the offsets though?
-	// TODO: Offset could be saved as push constants. When updating descriptor set I could put an offset to the buffer to gain 
-
-	rt_model_shader_data_t*				rt_model_shader_pointer;
 
 	int									rt_current_blas_index;
 	rt_blas_data_t*						rt_blas_data_pointer;
@@ -645,6 +647,7 @@ void R_DrawTextureChains_Water(qmodel_t* model, entity_t* ent, texchain_t chain)
 void GL_BuildLightmaps(void);
 void GL_DeleteBModelVertexBuffer(void);
 void GL_BuildBModelVertexBuffer(void);
+void GL_BuildBModelRTVertexAndIndexBuffer(void);
 void GLMesh_LoadVertexBuffers(void);
 void GLMesh_DeleteVertexBuffers(void);
 

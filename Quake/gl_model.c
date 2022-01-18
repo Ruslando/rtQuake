@@ -2574,6 +2574,13 @@ visdone:
 	{
 		bm = &mod->submodels[i];
 
+		if (i > 0) {
+			for (int d = 0; d < bm->numfaces; d++)
+			{
+				mod->surfaces[bm->firstface + d].bmodelindex = i + 1;
+			}
+		}
+		
 		mod->hulls[0].firstclipnode = bm->headnode[0];
 		for (j=1 ; j<MAX_MAP_HULLS ; j++)
 		{

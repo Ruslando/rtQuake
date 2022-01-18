@@ -24,6 +24,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // r_brush.c: brush model rendering. renamed from r_surf.c
 
 #include "quakedef.h"
+#include "gl_heap.h"
 
 extern cvar_t gl_fullbrights, r_drawflat; //johnfitz
 
@@ -702,6 +703,202 @@ void GL_DeleteBModelVertexBuffer (void)
 	}
 }
 
+
+void GL_BuildBModelRTVertexAndIndexBuffer (void)
+{
+	unsigned int	numverts, varray_bytes, numindices, iarray_bytes;
+	int		i, j;
+	qmodel_t	*m;
+	uint16_t* iarray;
+	byte	*varray;
+	int remaining_size;
+	int copy_offset;
+
+	// count all verts in all models
+	numverts = 0;
+	numindices = 0;
+	for (j=1 ; j<MAX_MODELS ; j++)
+	{
+		m = cl.model_precache[j];
+		if (!m || m->name[0] == '*' || m->type != mod_brush)
+			continue;
+
+		for (i=0 ; i<m->numsurfaces ; i++)
+		{
+			numverts += m->surfaces[i].numedges;
+			numindices += m->surfaces[i].numedges - 1;
+		}
+	}
+
+	numindices = numindices * 3 + 3;
+
+	// build vertex array
+	varray_bytes = sizeof(rt_vertex_t) * numverts;
+	varray = (byte*) malloc (varray_bytes);
+	//int rt_vertex_count = 10;
+
+	// build index array
+	iarray_bytes = sizeof(uint16_t) * numindices;
+	iarray = (uint16_t*)malloc(iarray_bytes);
+
+	for (j=1 ; j<MAX_MODELS ; j++)
+	{
+		m = cl.model_precache[j];
+		if (!m || m->name[0] == '*' || m->type != mod_brush)
+			continue;
+
+		numindices = 0;
+
+		for (i=0 ; i<m->numsurfaces ; i++)
+		{
+			msurface_t *s = &m->surfaces[i];
+			int first_vert = s->vbo_firstvert;
+
+			rt_vertex_t* rt_verts = (rt_vertex_t*)malloc(sizeof(rt_vertex_t) * s->numedges);
+
+			// add texture_index and material number (future use)
+			int tx_imageview_index = -1;
+			int fb_imageview_index = -1;
+
+			if (s->texinfo->texture->gltexture) {
+				glheapnode_t* txheapnode = s->texinfo->texture->gltexture->heap_node;
+
+				while (txheapnode->prev != NULL) {
+					txheapnode = txheapnode->prev;
+					tx_imageview_index++;
+				}
+			}
+
+			if (s->texinfo->texture->fullbright) {
+				glheapnode_t* fbheapnode = s->texinfo->texture->fullbright->heap_node;
+
+				while (fbheapnode->prev != NULL) {
+					fbheapnode = fbheapnode->prev;
+					fb_imageview_index++;
+				}
+			}
+
+			// copy verts data to rt_verts (they are identical) and add texture indices and material index
+			for (int k = 0; k < s->numedges; k++) {
+
+				rt_verts[k].vertex_pos[0] = s->polys->verts[k][0];
+				rt_verts[k].vertex_pos[1] = s->polys->verts[k][1];
+				rt_verts[k].vertex_pos[2] = s->polys->verts[k][2];
+				rt_verts[k].vertex_tx_coords[0] = s->polys->verts[k][3];
+				rt_verts[k].vertex_tx_coords[1] = s->polys->verts[k][4];
+				rt_verts[k].vertex_fb_coords[0] = s->polys->verts[k][5];
+				rt_verts[k].vertex_fb_coords[1] = s->polys->verts[k][6];
+
+				rt_verts[k].tx_index = tx_imageview_index;
+				rt_verts[k].fb_index = fb_imageview_index;
+				rt_verts[k].material_index = -1;	// future use
+			}
+
+			memcpy(&varray[sizeof(rt_vertex_t) * first_vert], rt_verts, sizeof(rt_vertex_t) * s->numedges);
+
+			// ignores brushes that have no texture and where lightmaps were not applied
+			/*if (s->flags & (SURF_NOTEXTURE)) {
+				continue;
+			}*/
+
+			// ignores submodels, needed submodels will be loaded in as entities
+			if (s->bmodelindex > 0) {
+				continue;
+			}
+
+			for (int k = 0; k < s->numedges; k++) {
+				iarray[numindices + (k * 3 + 0)] = (uint16_t)first_vert;
+				iarray[numindices + (k * 3 + 1)] = (uint16_t)first_vert + k + 1;
+				iarray[numindices + (k * 3 + 2)] = (uint16_t)first_vert + k;
+			}
+
+			numindices += (s->numedges - 1) * 3;
+		}
+	}
+
+	// Allocate vertex buffer
+	BufferResource_t rt_vert_buff_resource;
+	buffer_create(&rt_vert_buff_resource, varray_bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+		| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	vulkan_globals.rt_static_vertex_buffer = rt_vert_buff_resource.buffer;
+	GL_SetObjectName((uint64_t)vulkan_globals.rt_static_vertex_buffer, VK_OBJECT_TYPE_BUFFER, "Brush Vertex Buffer RT");
+
+	vulkan_globals.rt_static_vertex_memory = rt_vert_buff_resource.memory;
+	GL_SetObjectName((uint64_t)vulkan_globals.rt_static_vertex_memory, VK_OBJECT_TYPE_DEVICE_MEMORY, "Brush Vertex Memory RT");
+	
+	vulkan_globals.rt_static_vertex_count = numverts;
+	
+	remaining_size = varray_bytes;
+	copy_offset = 0;
+
+	while (remaining_size > 0)
+	{
+		const int size_to_copy = q_min(remaining_size, vulkan_globals.staging_buffer_size);
+		VkBuffer staging_buffer;
+		VkCommandBuffer command_buffer;
+		int staging_offset;
+		unsigned char* staging_memory = R_StagingAllocate(size_to_copy, 1, &command_buffer, &staging_buffer, &staging_offset);
+
+		memcpy(staging_memory, (byte*)varray + copy_offset, size_to_copy);
+
+		VkBufferCopy region;
+		region.srcOffset = staging_offset;
+		region.dstOffset = copy_offset;
+		region.size = size_to_copy;
+		vkCmdCopyBuffer(command_buffer, staging_buffer, vulkan_globals.rt_static_vertex_buffer, 1, &region);
+
+		copy_offset += size_to_copy;
+		remaining_size -= size_to_copy;
+	}
+
+	free(varray);
+
+	// num of indices may have changed while traversing
+	iarray_bytes = sizeof(uint16_t) * numindices;
+
+	// Allocate index buffer
+	BufferResource_t rt_ind_buff_resource;
+	buffer_create(&rt_ind_buff_resource, iarray_bytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+		| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	
+	vulkan_globals.rt_static_index_buffer = rt_ind_buff_resource.buffer;
+	GL_SetObjectName((uint64_t)vulkan_globals.rt_static_index_buffer, VK_OBJECT_TYPE_BUFFER, "Brush Index Buffer RT");
+	
+	vulkan_globals.rt_static_index_memory = rt_ind_buff_resource.memory;
+	GL_SetObjectName((uint64_t)vulkan_globals.rt_static_index_memory, VK_OBJECT_TYPE_DEVICE_MEMORY, "Brush Index Memory RT");
+	
+	vulkan_globals.rt_static_index_count = numindices;
+
+	remaining_size = iarray_bytes;
+	copy_offset = 0;
+
+	while (remaining_size > 0)
+	{
+		const int size_to_copy = q_min(remaining_size, vulkan_globals.staging_buffer_size);
+		VkBuffer staging_buffer;
+		VkCommandBuffer command_buffer;
+		int staging_offset;
+		unsigned char* staging_memory = R_StagingAllocate(size_to_copy, 1, &command_buffer, &staging_buffer, &staging_offset);
+
+		memcpy(staging_memory, (byte*)iarray + copy_offset, size_to_copy);
+
+		VkBufferCopy region;
+		region.srcOffset = staging_offset;
+		region.dstOffset = copy_offset;
+		region.size = size_to_copy;
+		vkCmdCopyBuffer(command_buffer, staging_buffer, vulkan_globals.rt_static_index_buffer, 1, &region);
+
+		copy_offset += size_to_copy;
+		remaining_size -= size_to_copy;
+	}
+
+	free(iarray);
+}
+
 /*
 ==================
 GL_BuildBModelVertexBuffer
@@ -753,6 +950,8 @@ void GL_BuildBModelVertexBuffer (void)
 		}
 	}
 
+	
+
 	// Allocate & upload to GPU
 	VkResult err;
 
@@ -780,7 +979,7 @@ void GL_BuildBModelVertexBuffer (void)
 	memset(&memory_allocate_info, 0, sizeof(memory_allocate_info));
 	memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 	memory_allocate_info.allocationSize = aligned_size;
-	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
 
 	VkMemoryAllocateFlagsInfo mem_alloc_flags = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,

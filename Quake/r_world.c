@@ -351,7 +351,7 @@ Writes out the triangle indices needed to draw s as a triangle list.
 The number of indices it will write is given by R_NumTriangleIndicesForSurf.
 ================
 */
-static void R_TriangleAndTextureIndicesForSurf(msurface_t* s, uint16_t* indices, int num_vbo_indices)
+static void R_TriangleAndTextureIndicesForSurf(msurface_t* s, uint32_t* indices, int num_vbo_indices)
 {
 	int i;
 	for (i = 2; i < s->numedges; i++)
@@ -560,90 +560,6 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 	}
 }
 
-
-/*
-================
-RT_LoadStaticWorldVertices
-
-Loads world buffer data into vertex buffer
-================
-*/
-void RT_LoadStaticWorldVertices() {
-
-	// get buffer memory requirements for bmodel buffer size
-	VkMemoryRequirements memory_requirements;
-	vkGetBufferMemoryRequirements(vulkan_globals.device, bmodel_vertex_buffer, &memory_requirements);
-	
-	if (vulkan_globals.rt_static_vertex_buffer[0].buffer == NULL) {
-
-		VkDeviceSize vertex_data_size = 65536 * sizeof(rt_vertex_t);
-		// Vertex buffer allocation
-		if (vulkan_globals.rt_static_vertex_buffer[0].buffer == NULL) {
-
-			for (int i = 0; i < FRAMES_IN_FLIGHT; i++) {
-				BufferResource_t rt_vertex_buffer_resource;
-				buffer_create(&rt_vertex_buffer_resource, vertex_data_size,
-					VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-
-				vulkan_globals.rt_static_vertex_buffer[i] = rt_vertex_buffer_resource;
-			}
-		}
-
-		//map buffer of bmodel vertex buffer and copy data to array
-		void* data;
-		vkMapMemory(vulkan_globals.device, bmodel_memory, 0, memory_requirements.size, 0, &data);
-		vkUnmapMemory(vulkan_globals.device, bmodel_memory);
-
-		float_t* data_cast = (float_t*)data;
-
-		int maxVerts = memory_requirements.size / (sizeof(rt_vertex_t) - sizeof(int));
-
-		rt_vertex_t* vertex_data = (rt_vertex_t*)malloc(maxVerts * sizeof(rt_vertex_t));
-
-		for (int j = 0; j < maxVerts; j++) {
-
-			int offset = j * 7; // size of rt_vertex_t without the model shader data index (float)
-
-			// copy vertex pos
-			vertex_data[j].vertex_pos[0] = data_cast[offset + 0];
-			vertex_data[j].vertex_pos[1] = data_cast[offset + 1];
-			vertex_data[j].vertex_pos[2] = data_cast[offset + 2];
-
-			// copy diffuse texture coords
-			vertex_data[j].vertex_tx_coords[0] = data_cast[offset + 3];
-			vertex_data[j].vertex_tx_coords[1] = data_cast[offset + 4];
-
-			// copy fullbright texture coords
-			vertex_data[j].vertex_fb_coords[0] = data_cast[offset + 5];
-			vertex_data[j].vertex_fb_coords[1] = data_cast[offset + 6];
-
-			// sets model shader data to -1(unused). each consecutive model gets its own index that refers to a shader data entry
-			vertex_data[j].model_shader_data_index = -1;
-		}
-
-
-		for (int i = 0; i < FRAMES_IN_FLIGHT; i++) {
-			void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_static_vertex_buffer[i]);
-			memcpy(vertex_buffer_data, vertex_data, maxVerts * sizeof(rt_vertex_t));
-			buffer_unmap(&vulkan_globals.rt_static_vertex_buffer[i]);
-		}
-
-		free(vertex_data);
-
-		vulkan_globals.rt_blas_data_pointer[vulkan_globals.rt_current_blas_index].vertex_buffer_offset = 0;
-		vulkan_globals.rt_blas_data_pointer[vulkan_globals.rt_current_blas_index].vertex_count = maxVerts;
-	}
-	else {
-		/*int maxVerts = memory_requirements.size / (sizeof(rt_vertex_t) - sizeof(int));
-
-		byte* vertex_buffer_data = buffer_map(&vulkan_globals.rt_static_vertex_buffer);
-		memset(vertex_buffer_data + (maxVerts * sizeof(rt_vertex_t)), 0, vulkan_globals.rt_static_vertex_buffer.size - (maxVerts * sizeof(rt_vertex_t)));
-		buffer_unmap(&vulkan_globals.rt_static_vertex_buffer);*/
-	}
-
-}
-
 /*
 ================
 RT_LoadBrushModelIndices
@@ -663,18 +579,13 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 	rt_model_shader_data_t model_shader;
 
 	// sets current overall index_count
-	int index_count = vulkan_globals.rt_blas_data_pointer[vulkan_globals.rt_current_blas_index].index_count;
+	int index_count = 0;
 
 	int current_blas_index = vulkan_globals.rt_current_blas_index;
 
-	// static vertex buffer
-	void* vertex_buffer_data = buffer_map(&vulkan_globals.rt_static_vertex_buffer[vulkan_globals.current_command_buffer]);
-	rt_vertex_t* vertex_data_pointer = (rt_vertex_t*)vertex_buffer_data;
-
-	uint16_t* index_data_pointer = (uint16_t*)malloc(16000 * sizeof(uint16_t));
+	uint32_t* index_data_pointer = (uint32_t*)malloc(16000 * sizeof(uint32_t));
 	
 	for (i = 0; i < model->numtextures; ++i)
-	//for (i = 0; i < 1; ++i)
 	{
 		t = model->textures[i];
 
@@ -698,7 +609,8 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 		{
 			if (!bound) //only bind once we are sure we need this texture
 			{
-				texture_t* texture = R_TextureAnimation(t, ent != NULL ? ent->frame : 0);
+				// TODO: Reintroduce TextureAnimation
+				/*texture_t* texture = R_TextureAnimation(t, ent != NULL ? ent->frame : 0);
 				gltexture_t* gl_texture = texture->gltexture;
 				if (!r_lightmap_cheatsafe) {
 					glheapnode_t* txheapnode = gl_texture->heap_node;
@@ -707,7 +619,7 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 						txheapnode = txheapnode->prev;
 						tx_imageview_index++;
 					}
-				}
+				}*/
 					
 				//alpha_test = (t->texturechains[chain]->flags & SURF_DRAWFENCE) != 0;
 				bound = true;
@@ -726,28 +638,22 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 			rs_brushpasses++;
 		}
 
-
-
-		for (int j = vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count; j < index_count; j++) {
-			vertex_data_pointer[index_data_pointer[j]].model_shader_data_index = vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count;
-		}
-
 		model_shader.texture_buffer_offset_index = tx_imageview_index;
 		model_shader.texture_buffer_fullbright_offset_index = fb_imageview_index;
 
-		vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count = index_count;
-
-		vulkan_globals.rt_model_shader_pointer[vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count] = model_shader;
+		vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count += index_count;
 		vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count += 1;
 	}
 
 	num_vbo_indices = 0;
-	buffer_unmap(&vulkan_globals.rt_static_vertex_buffer[vulkan_globals.current_command_buffer]);
+
+	// copy brush vertices from buffer;
+	// Make buffer mappable or somehow gather data from data
 
 	VkBuffer dynamic_index_buffer;
 	VkDeviceSize dynamic_index_buffer_offset;
-	uint16_t* indices = (uint16_t*) R_IndexAllocate(index_count * sizeof(uint16_t), &dynamic_index_buffer, &dynamic_index_buffer_offset);
-	memcpy(indices, index_data_pointer, index_count * sizeof(uint16_t));
+	byte* indices = R_IndexAllocate(index_count * sizeof(uint32_t), &dynamic_index_buffer, &dynamic_index_buffer_offset);
+	memcpy(indices, index_data_pointer, index_count * sizeof(uint32_t));
 }
 
 /*
@@ -886,20 +792,6 @@ void RT_LoadDynamicWorldIndices() {
 	R_BeginDebugUtilsLabel("Dynamic World Indices");
 	// unlike this method says, world indices are dynamic. might change in future
 	RT_LoadBrushModelIndices(cl.worldmodel, NULL, chain_world, 1);
-	R_EndDebugUtilsLabel();
-}
-
-/*
-=============
-RT_LoadStaticWorldGeometry -- russeln -- return model data (vertex, index and texture buffer) from brush model in modified format (rt_vertex_s)
-=============
-*/
-void RT_LoadStaticWorldGeometry() {
-	if (!r_drawworld_cheatsafe)
-		return;
-
-	R_BeginDebugUtilsLabel("World Vertices");
-	RT_LoadStaticWorldVertices();
 	R_EndDebugUtilsLabel();
 }
 
