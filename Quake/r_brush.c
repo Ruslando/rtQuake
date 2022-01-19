@@ -797,9 +797,9 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 			memcpy(&varray[sizeof(rt_vertex_t) * first_vert], rt_verts, sizeof(rt_vertex_t) * s->numedges);
 
 			// ignores brushes that have no texture and where lightmaps were not applied
-			/*if (s->flags & (SURF_NOTEXTURE)) {
+			if (s->flags & (SURF_NOTEXTURE | SURF_DRAWSKY) ) {
 				continue;
-			}*/
+			}
 
 			// ignores submodels, needed submodels will be loaded in as entities
 			if (s->bmodelindex > 0) {

@@ -148,6 +148,7 @@ extern int r_trace_line_cache_counter;
 typedef struct raygen_uniform_s {
 	float view_inverse[16];
 	float proj_inverse[16];
+	int frame;
 } raygen_uniform_t;
 
 typedef struct BufferResource_s {

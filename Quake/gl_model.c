@@ -2553,7 +2553,7 @@ visdone:
 	Mod_LoadClipnodes (&header->lumps[LUMP_CLIPNODES], bsp2);
 	Mod_LoadEntities (&header->lumps[LUMP_ENTITIES]);
 	Mod_LoadSubmodels (&header->lumps[LUMP_MODELS]);
-	//Mod_LoadLightEntities();
+	Mod_LoadLightEntities();
 
 	Mod_PrepareSIMDData ();
 	Mod_MakeHull0 ();

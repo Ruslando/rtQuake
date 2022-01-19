@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "quakedef.h": "c"
+        "quakedef.h": "c",
+        "anorm_dots.h": "c"
     }
 }
