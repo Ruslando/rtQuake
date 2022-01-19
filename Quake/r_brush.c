@@ -820,14 +820,12 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 	BufferResource_t rt_vert_buff_resource;
 	buffer_create(&rt_vert_buff_resource, varray_bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
 		| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-	vulkan_globals.rt_static_vertex_buffer = rt_vert_buff_resource.buffer;
-	GL_SetObjectName((uint64_t)vulkan_globals.rt_static_vertex_buffer, VK_OBJECT_TYPE_BUFFER, "Brush Vertex Buffer RT");
+	GL_SetObjectName((uint64_t)rt_vert_buff_resource.buffer, VK_OBJECT_TYPE_BUFFER, "Brush Vertex Buffer RT");
+	GL_SetObjectName((uint64_t)rt_vert_buff_resource.memory, VK_OBJECT_TYPE_DEVICE_MEMORY, "Brush Vertex Memory RT");
 
-	vulkan_globals.rt_static_vertex_memory = rt_vert_buff_resource.memory;
-	GL_SetObjectName((uint64_t)vulkan_globals.rt_static_vertex_memory, VK_OBJECT_TYPE_DEVICE_MEMORY, "Brush Vertex Memory RT");
-	
+	vulkan_globals.rt_static_vertex_buffer_resource = rt_vert_buff_resource;
 	vulkan_globals.rt_static_vertex_count = numverts;
 	
 	remaining_size = varray_bytes;
@@ -847,7 +845,7 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 		region.srcOffset = staging_offset;
 		region.dstOffset = copy_offset;
 		region.size = size_to_copy;
-		vkCmdCopyBuffer(command_buffer, staging_buffer, vulkan_globals.rt_static_vertex_buffer, 1, &region);
+		vkCmdCopyBuffer(command_buffer, staging_buffer, vulkan_globals.rt_static_vertex_buffer_resource.buffer, 1, &region);
 
 		copy_offset += size_to_copy;
 		remaining_size -= size_to_copy;

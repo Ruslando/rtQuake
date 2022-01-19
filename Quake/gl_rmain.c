@@ -985,7 +985,7 @@ VkResult R_UpdateRaygenDescriptorSets()
 	// static vertex buffer
 	VkDescriptorBufferInfo static_vertex_buffer_info;
 	memset(&static_vertex_buffer_info, 0, sizeof(VkDescriptorBufferInfo));
-	static_vertex_buffer_info.buffer = vulkan_globals.rt_static_vertex_buffer;
+	static_vertex_buffer_info.buffer = vulkan_globals.rt_static_vertex_buffer_resource.buffer;
 	static_vertex_buffer_info.offset = 0;
 	static_vertex_buffer_info.range = VK_WHOLE_SIZE;
 
@@ -1311,7 +1311,7 @@ void R_RenderScene_RTX(void)
 	//int blas_count = vulkan_globals.rt_current_blas_index + 1;
 	
 	// static model blas
-	R_Create_BLAS_Instance(&vulkan_globals.blas_instances[vulkan_globals.current_command_buffer].static_blas, vulkan_globals.rt_static_vertex_buffer,
+	R_Create_BLAS_Instance(&vulkan_globals.blas_instances[vulkan_globals.current_command_buffer].static_blas, vulkan_globals.rt_static_vertex_buffer_resource.buffer,
 		0, vulkan_globals.rt_static_vertex_count,
 		vulkan_globals.rt_static_index_count / 3, sizeof(rt_vertex_t), vulkan_globals.rt_static_index_buffer,
 		vulkan_globals.rt_static_index_count, 0,

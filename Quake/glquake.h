@@ -329,8 +329,7 @@ typedef struct
 	BufferResource_t					as_instances[FRAMES_IN_FLIGHT];
 
 	// TODO: Replace most buffers with the dynamic buffers made in rtquake
-	VkDeviceMemory						rt_static_vertex_memory;
-	VkBuffer							rt_static_vertex_buffer;
+	BufferResource_t					rt_static_vertex_buffer_resource;
 	int									rt_static_vertex_count;
 
 	VkBuffer							rt_dynamic_vertex_buffer;

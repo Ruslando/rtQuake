@@ -576,15 +576,23 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 	//qboolean	alpha_blend = alpha < 1.0f;
 	//qboolean	use_zbias = (gl_zfix.value && model != cl.worldmodel);
 	gltexture_t* fullbright = NULL;
-	rt_model_shader_data_t model_shader;
 
 	// sets current overall index_count
-	int index_count = 0;
-
 	int current_blas_index = vulkan_globals.rt_current_blas_index;
 
+	int index_count = 0;
+	int index_offset = vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count;
+
 	uint32_t* index_data_pointer = (uint32_t*)malloc(16000 * sizeof(uint32_t));
+
+	int minimum_index_value = INT_MAX;
+	int maximum_index_value = INT_MIN;
 	
+	// copy brush vertices from buffer;
+		// Make buffer mappable or somehow gather data from data
+	rt_vertex_t* vertex_data = (rt_vertex_t*)buffer_map(&vulkan_globals.rt_static_vertex_buffer_resource);
+	buffer_unmap(&vulkan_globals.rt_static_vertex_buffer_resource);
+
 	for (i = 0; i < model->numtextures; ++i)
 	{
 		t = model->textures[i];
@@ -601,12 +609,15 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 
 		//R_ClearBatch();
 
-		int tx_imageview_index = -1;
-		int fb_imageview_index = -1;
+		/*int tx_imageview_index = -1;
+		int fb_imageview_index = -1;*/
 
 		bound = false;
 		for (s = t->texturechains[chain]; s; s = s->texturechain)
 		{
+			s->vbo_firstvert + s->numedges - 1 > maximum_index_value ? maximum_index_value = s->vbo_firstvert + s->numedges - 1 : maximum_index_value;
+			s->vbo_firstvert < minimum_index_value ? minimum_index_value = s->vbo_firstvert : minimum_index_value;
+
 			if (!bound) //only bind once we are sure we need this texture
 			{
 				// TODO: Reintroduce TextureAnimation
@@ -632,14 +643,33 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 				num_surf_indices = R_NumTriangleIndicesForSurf(s);
 
 				R_TriangleAndTextureIndicesForSurf(s, index_data_pointer, index_count);	// cumulative index count of previous models (offset) + current index_count
+
+				for (int j = index_count; j < index_count + num_surf_indices; j++) {
+					int index = index_data_pointer[j] - s->vbo_firstvert + index_offset;
+					index_data_pointer[j] = index;
+				}
+
 				index_count += num_surf_indices;
+				vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count += s->numedges;
+				index_offset = vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count;
 			}
+
+			rt_vertex_t* brush_vertex_data = (rt_vertex_t*)malloc(s->numedges * sizeof(rt_vertex_t));
+
+			for (int j = 0; j < s->numedges; j++) {
+				int index = j + s->vbo_firstvert;
+				brush_vertex_data[j] = vertex_data[index];
+			}
+
+			VkBuffer dynamic_vertex_buffer;
+			VkDeviceSize dynamic_vertex_buffer_offset;
+			byte* vertices = R_VertexAllocate(s->numedges * sizeof(rt_vertex_t), &dynamic_vertex_buffer, &dynamic_vertex_buffer_offset);
+			memcpy(vertices, brush_vertex_data, s->numedges * sizeof(rt_vertex_t));
+			
+			free(brush_vertex_data);
 
 			rs_brushpasses++;
 		}
-
-		model_shader.texture_buffer_offset_index = tx_imageview_index;
-		model_shader.texture_buffer_fullbright_offset_index = fb_imageview_index;
 
 		vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count += index_count;
 		vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count += 1;
@@ -647,13 +677,12 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 
 	num_vbo_indices = 0;
 
-	// copy brush vertices from buffer;
-	// Make buffer mappable or somehow gather data from data
-
 	VkBuffer dynamic_index_buffer;
 	VkDeviceSize dynamic_index_buffer_offset;
 	byte* indices = R_IndexAllocate(index_count * sizeof(uint32_t), &dynamic_index_buffer, &dynamic_index_buffer_offset);
 	memcpy(indices, index_data_pointer, index_count * sizeof(uint32_t));
+
+	free(index_data_pointer);
 }
 
 /*
