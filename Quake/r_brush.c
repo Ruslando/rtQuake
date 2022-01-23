@@ -750,7 +750,8 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 		numindices = 0;
 
 		for (i=0 ; i<m->numsurfaces ; i++)
-		{
+		{	
+			int material = 0; // default diffuse material
 			msurface_t *s = &m->surfaces[i];
 			int first_vert = s->vbo_firstvert;
 
@@ -778,6 +779,11 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 				}
 			}
 
+			// fullbright textures are considered emissive materials
+			if (fb_imageview_index != -1) {
+				material = 1; // index for emissive
+			}
+
 			// copy verts data to rt_verts (they are identical) and add texture indices and material index
 			for (int k = 0; k < s->numedges; k++) {
 
@@ -791,13 +797,18 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 
 				rt_verts[k].tx_index = tx_imageview_index;
 				rt_verts[k].fb_index = fb_imageview_index;
-				rt_verts[k].material_index = -1;	// future use
+				rt_verts[k].material_index = material;	// future use
 			}
 
 			memcpy(&varray[sizeof(rt_vertex_t) * first_vert], rt_verts, sizeof(rt_vertex_t) * s->numedges);
 
 			// ignores brushes that have no texture and where lightmaps were not applied
-			if (s->flags & (SURF_NOTEXTURE | SURF_DRAWSKY) ) {
+			if (s->flags & (SURF_NOTEXTURE)) {
+				continue;
+			}
+
+			if (s->flags & (SURF_DRAWSKY)) {
+				material = 2; // index for skylight
 				continue;
 			}
 

@@ -13,6 +13,7 @@ layout(location = 0) rayPayloadInEXT HitPayload hitPayload;
 
 void main()
 {
-	hitPayload.contribution *= vec3(0.0, 0.1, 0.4);;
+	hitPayload.contribution *= vec3(0.9, 0.9, 1.0) * 10;
+    //hitPayload.contribution *= vec3(0);
     hitPayload.done = true;
 }

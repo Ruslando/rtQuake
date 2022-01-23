@@ -1244,7 +1244,7 @@ void RT_InitializeDynamicBuffers(void){
 }
 
 void RT_LoadDynamicAliasGeometry(void) {
-	R_DrawViewModel();
+	//R_DrawViewModel();
 	R_DrawEntitiesOnList(false);
 }
 
@@ -1260,7 +1260,7 @@ void R_RenderScene_RTX(void)
 
 	R_SetupCameraMatrices_RTX();
 	TexMgr_LoadActiveTextures();
-	R_CreateLightEntitiesList(cl.viewent.origin);
+	//R_CreateLightEntitiesList(cl.viewent.origin);
 
 	// TODO: Move to other place;
 	if (vulkan_globals.acceleration_structure_scratch_buffer.buffer == NULL) {

@@ -2759,7 +2759,7 @@ void R_CreatePipelines()
 	rt_pipeline_info.groupCount = 4; // currently one ray gen shader, two miss shader, one closest hit shader
 	//rt_pipeline_info.groupCount = 3;
 	rt_pipeline_info.pGroups = rt_shader_group_info;
-	rt_pipeline_info.maxPipelineRayRecursionDepth = 2;
+	rt_pipeline_info.maxPipelineRayRecursionDepth = 4;
 	rt_pipeline_info.layout = vulkan_globals.raygen_pipeline.layout.handle;
 	/*rt_pipeline_info.pLibraryInfo = &pipelineLibraryCreateInfo;
 	rt_pipeline_info.pLibraryInterface = NULL;*/

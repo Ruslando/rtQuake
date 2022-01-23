@@ -17,6 +17,7 @@ hitAttributeEXT vec2 hitCoordinate;
 
 layout(location = 0) rayPayloadInEXT HitPayload  hitPayload;
 layout(location = 1) rayPayloadEXT vec3 attribs;
+layout(location = 2) rayPayloadEXT bool isShadowed;
 
 struct Vertex{
 	vec3 vertex_pos;
@@ -85,16 +86,22 @@ void main()
 	vec2 tex_coords = v1.vertex_tx * barycentrics.x + v2.vertex_tx * barycentrics.y + v3.vertex_tx * barycentrics.z;
 	vec2 fb_coords = v1.vertex_fb * barycentrics.x + v2.vertex_fb * barycentrics.y + v3.vertex_fb * barycentrics.z;
 
+	vec4 txcolor = vec4(0.0);
+	vec4 fbcolor = vec4(0.0);
+
 	if(v1.tx_index != -1){
-		outColor += texture(textures[v1.tx_index], tex_coords); // regular texture
+		txcolor = texture(textures[v1.tx_index], tex_coords); // regular texture
 	}
 	if(v1.fb_index != -1){
-		outColor += texture(textures[v1.fb_index], fb_coords); // fullbright texture
+		fbcolor = texture(textures[v1.fb_index], fb_coords); // fullbright texture
 	}
 	
 	vec3 position = v1.vertex_pos * barycentrics.x + v2.vertex_pos * barycentrics.y + v3.vertex_pos * barycentrics.z;
 	vec3 geometricNormal = normalize(cross(v2.vertex_pos - v1.vertex_pos, v3.vertex_pos - v1.vertex_pos));
-	// vertices seem to be clock-wise, so the normal has to be inverted
+	if(instanceId != 0){
+		geometricNormal *= -1;
+	}
+	// vertices seem to be clock-wise on dynamic models, so the normal has to be inverted
 	
 	//debugPrintfEXT("pos calc: %v3f - world pos: %v3f", position, worldPos);
 
@@ -106,33 +113,93 @@ void main()
 	float lightDistance;
 	float lightIntensity;
 	float attenuation;
+	
 	vec3 L ;
 
 	float NdotL;
 	float diffuse;
-	float sumNdotL = 0;
+	vec3 sumLightColor = vec3(1);
+	bool hitLight = false;
+	bool hitSky = false;
 
-	// TODO: save number of indices somewhere
-	for(int i = 0; i < 128; i++)
-	{
-		//lightIndex = lightEntityIndices.li[i];
-		lightEntity = lightEntitiesBuffer.l[i];
-		lightDirection = lightEntity.origin_radius.xyz - position; // TODO: check why this gives weird results although its correct
-		lightDistance = length(lightDirection);
-		lightIntensity = (250 * 100) / (lightDistance * lightDistance);
-		attenuation = 1;
-		L = normalize(lightDirection);
-
-		NdotL = dot(geometricNormal, L);
-		float diffuse = lightIntensity * NdotL;
-
-		sumNdotL += diffuse * attenuation;
+	if(fbcolor.x + fbcolor.y + fbcolor.z > 1){
+		hitLight = true;
 	}
 
-	outColor *= sumNdotL;
+//
+//	if(v1.material_index == 2){
+//		hitSky = false;
+//	}
 
-	// fill payload data
-	hitPayload.contribution *= outColor.xyz;
-	hitPayload.position = position; // adding slight offset to start position, so that ray doesnt hit the object at the start position
-	hitPayload.normal = geometricNormal;
+	// if sky was hit
+//	if(hitSky){
+////		hitPayload.contribution += vec3(1, 1, 1);
+////		hitPayload.done = true;
+//	}
+
+	//if light was hit and not the sky
+	if(hitLight && !hitSky){
+		hitPayload.contribution *= fbcolor.xyz * 50;
+		hitPayload.done = true;
+	}
+
+	// if neither sky or a light source was hit (indirect lighting)
+	if(!hitLight){
+		outColor = txcolor + fbcolor;
+
+//		for(int i = 1; i < 2; i++)
+//		{
+//			lightEntity = lightEntitiesBuffer.l[i];
+//			lightDirection = lightEntity.origin_radius.xyz - position;
+//			L = normalize(lightDirection);
+//			NdotL = dot(geometricNormal, L);
+////
+//			if(NdotL > 0){
+//				lightDistance = length(lightDirection);
+//				lightIntensity = (250) / (lightDistance * lightDistance);
+//				attenuation = 1;
+//			
+//				float diffuse = NdotL * lightIntensity;
+//
+//				sumLightColor = diffuse * lightEntity.light_color.xyz;
+//			}
+//
+////			if(NdotL > 0){
+////				
+////
+////				float tMin   = 0.001;
+////				float tMax   = lightDistance;
+////				vec3  origin = position + (0.001 * L);
+////				vec3  rayDir = L;
+////				uint  flags =
+////					gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+////
+////				isShadowed = true;
+////				traceRayEXT(topLevelAS,  // acceleration structure
+////						flags,       // rayFlags
+////						0xFF,        // cullMask
+////						0,           // sbtRecordOffset
+////						0,           // sbtRecordStride
+////						1,           // missIndex
+////						origin,      // ray origin
+////						tMin,        // ray min range
+////						rayDir,      // ray direction
+////						tMax,        // ray max range
+////						2            // payload (location = 2)
+////				);
+////
+////				if(!isShadowed){
+////					sumLightColor += diffuse * vec3(1);
+////				}
+////			}
+//		}
+
+		outColor.xyz *= sumLightColor;
+
+		hitPayload.contribution *= outColor.xyz;
+		hitPayload.position = position;
+		hitPayload.normal = geometricNormal;
+
+	}
+	
 }

@@ -26,7 +26,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 int	r_dlightframecount;
 
 const int MAX_LIGHT_ENTITIES = 512;
-const int MAX_VISIBLE_LIGHT_ENTITIES = 1;
+const int MAX_VISIBLE_LIGHT_ENTITIES = 128;
 
 
 extern cvar_t r_flatlightstyles; //johnfitz
@@ -388,13 +388,13 @@ void R_CopyLightEntitiesToBuffer(void)
 	rt_light_entity_shader_t* light_shader = (rt_light_entity_shader_t*)malloc(vulkan_globals.rt_light_entities_count * sizeof(rt_light_entity_shader_t));
 	for (int i = 0; i < vulkan_globals.rt_light_entities_count; i++) {
 		light_shader[i].origin_radius[0] = vulkan_globals.rt_light_entities[i].origin_radius[0]; light_shader[i].origin_radius[1] = vulkan_globals.rt_light_entities[i].origin_radius[1];
-		light_shader[i].origin_radius[2] = vulkan_globals.rt_light_entities[2].origin_radius[2]; light_shader[i].origin_radius[3] = vulkan_globals.rt_light_entities[i].origin_radius[3];
+		light_shader[i].origin_radius[2] = vulkan_globals.rt_light_entities[i].origin_radius[2]; light_shader[i].origin_radius[3] = vulkan_globals.rt_light_entities[i].origin_radius[3];
 
 		light_shader[i].light_color[0] = vulkan_globals.rt_light_entities[i].light_color[0]; light_shader[i].light_color[1] = vulkan_globals.rt_light_entities[i].light_color[1];
-		light_shader[i].light_color[2] = vulkan_globals.rt_light_entities[2].light_color[2]; light_shader[i].light_color[3] = vulkan_globals.rt_light_entities[i].light_color[3];
+		light_shader[i].light_color[2] = vulkan_globals.rt_light_entities[i].light_color[2]; light_shader[i].light_color[3] = vulkan_globals.rt_light_entities[i].light_color[3];
 
 		light_shader[i].light_clamp[0] = vulkan_globals.rt_light_entities[i].light_clamp[0]; light_shader[i].light_clamp[1] = vulkan_globals.rt_light_entities[i].light_clamp[1];
-		light_shader[i].light_clamp[2] = vulkan_globals.rt_light_entities[2].light_clamp[2]; light_shader[i].light_clamp[3] = vulkan_globals.rt_light_entities[i].light_clamp[3];
+		light_shader[i].light_clamp[2] = vulkan_globals.rt_light_entities[i].light_clamp[2]; light_shader[i].light_clamp[3] = vulkan_globals.rt_light_entities[i].light_clamp[3];
 	}
 
 	if (vulkan_globals.rt_light_entities_count > 0) {

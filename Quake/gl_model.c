@@ -2299,18 +2299,47 @@ void Mod_LoadLightEntities(void) {
 			const char* entityName = ent.clientClassName;
 			if (strstr(entityName, "light")) {
 
-				if (strstr(entityName, "torch") || strstr(entityName, "candle")) {
-					ent.clientOrigin[1] += 20;
+				// strcmp returns 0 when true, so we have to negate it. this choice is confusing
+				if (!strcmp(entityName, "light_flame_large_yellow")) {
+					ent.clientOrigin[2] += 20;
+
+					if (ent.light == 0) {
+						ent.light = 300;
+					}
+
+					R_AddWorldLightEntity(ent.clientOrigin[0], ent.clientOrigin[1], ent.clientOrigin[2], ent.light, ent.light_style, 1.0f, 1.0f, 0.0f);
 				}
 
-				if (ent.light == 0) {
-					ent.light = 200;
+				if (!strcmp(entityName, "light_flame_small_yellow")) {
+					ent.clientOrigin[2] += 20;
+
+					if (ent.light == 0) {
+						ent.light = 200;
+					}
+
+					R_AddWorldLightEntity(ent.clientOrigin[0], ent.clientOrigin[1], ent.clientOrigin[2], ent.light, ent.light_style, 1.0f, 1.0f, 0.0f);
 				}
 
-				R_AddWorldLightEntity(ent.clientOrigin[0], ent.clientOrigin[1], ent.clientOrigin[2], ent.light, ent.light_style, 1.0f, 1.0f, 1.0f);
-			}
-			else if (ent.light > 0) {
-				R_AddWorldLightEntity(ent.clientOrigin[0], ent.clientOrigin[1], ent.clientOrigin[2], ent.light, ent.light_style, 1.0f, 1.0f, 1.0f);
+				if (!strcmp(entityName, "light_flame_small_white")) {
+					ent.clientOrigin[2] += 20;
+
+					if (ent.light == 0) {
+						ent.light = 200;
+					}
+
+					R_AddWorldLightEntity(ent.clientOrigin[0], ent.clientOrigin[1], ent.clientOrigin[2], ent.light, ent.light_style, 1.0f, 1.0f, 1.0f);
+				}
+
+				if (!strcmp(entityName, "light_torch_small_walltorch")) {
+					ent.clientOrigin[2] += 20;
+
+					if (ent.light == 0) {
+						ent.light = 200;
+					}
+
+					R_AddWorldLightEntity(ent.clientOrigin[0], ent.clientOrigin[1], ent.clientOrigin[2], ent.light, ent.light_style, 1.0f, 1.0f, 0.0f);
+				}
+
 			}
 		}
 	}
