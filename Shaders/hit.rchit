@@ -68,6 +68,24 @@ uvec3 getIndices(int primitiveId, int instanceId){
 	}
 };
 
+float getRelativeLuminance(vec3 tex_color){
+	return tex_color.x * 0.2126 + tex_color.y * 0.7152 + tex_color.z * 0.0722;
+}
+
+vec4 applyLuminance(vec4 color){
+	float maxvalue = max(max(color.x, color.y),color.z);
+	float luminance_factor = 25 * maxvalue;
+	if(color.x == maxvalue){
+		return vec4(color.x * luminance_factor, color.y, color.z, color.w);
+	}
+	else if(color.y == maxvalue){
+		return vec4(color.x, color.y * luminance_factor, color.z, color.w);
+	}
+	else if(color.z == maxvalue){
+		return vec4(color.x, color.y, color.z * luminance_factor, color.w);
+	}
+}
+
 void main()
 {	
 	const int primitiveId = gl_PrimitiveID;
@@ -93,7 +111,7 @@ void main()
 		txcolor = texture(textures[v1.tx_index], tex_coords); // regular texture
 	}
 	if(v1.fb_index != -1){
-		fbcolor = texture(textures[v1.fb_index], fb_coords); // fullbright texture
+		fbcolor = texture(textures[v1.fb_index], tex_coords); // fullbright texture
 	}
 	
 	vec3 position = v1.vertex_pos * barycentrics.x + v2.vertex_pos * barycentrics.y + v3.vertex_pos * barycentrics.z;
@@ -122,7 +140,8 @@ void main()
 	bool hitLight = false;
 	bool hitSky = false;
 
-	if(fbcolor.x + fbcolor.y + fbcolor.z > 1){
+	if(getRelativeLuminance(fbcolor.xyz + txcolor.xyz) > 0.5){
+		outColor = applyLuminance(fbcolor);
 		hitLight = true;
 	}
 
@@ -139,7 +158,7 @@ void main()
 
 	//if light was hit and not the sky
 	if(hitLight && !hitSky){
-		hitPayload.contribution *= fbcolor.xyz * 50;
+		hitPayload.contribution *= fbcolor.xyz * 25;
 		hitPayload.done = true;
 	}
 

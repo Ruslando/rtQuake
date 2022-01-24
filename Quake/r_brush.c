@@ -741,13 +741,13 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 	iarray_bytes = sizeof(uint16_t) * numindices;
 	iarray = (uint16_t*)malloc(iarray_bytes);
 
+	numindices = 0;
+
 	for (j=1 ; j<MAX_MODELS ; j++)
 	{
 		m = cl.model_precache[j];
 		if (!m || m->name[0] == '*' || m->type != mod_brush)
 			continue;
-
-		numindices = 0;
 
 		for (i=0 ; i<m->numsurfaces ; i++)
 		{	

@@ -380,51 +380,49 @@ void TexMgr_LoadActiveTextures(void)
 {
 
 	// TODO: Only run when loading new level or on respawn
-	if (vulkan_globals.texture_list == NULL) {
-		free(vulkan_globals.texture_list);
-		VkDescriptorImageInfo* texture_image_infos = (VkDescriptorImageInfo*)malloc(MAX_GLTEXTURES * sizeof(VkDescriptorImageInfo));
-		memset(texture_image_infos, 0, MAX_GLTEXTURES * sizeof(VkDescriptorImageInfo));
+	free(vulkan_globals.texture_list);
+	VkDescriptorImageInfo* texture_image_infos = (VkDescriptorImageInfo*)malloc(MAX_GLTEXTURES * sizeof(VkDescriptorImageInfo));
+	memset(texture_image_infos, 0, MAX_GLTEXTURES * sizeof(VkDescriptorImageInfo));
 
-		int image_count = 0;
-		gltexture_t* current_texture = active_gltextures;
+	int image_count = 0;
+	gltexture_t* current_texture = active_gltextures;
 
-		qboolean last_check = false;
-		while (current_texture->next != NULL && !last_check) {
-			glheapnode_t* heapnode = current_texture->heap_node;
+	qboolean last_check = false;
+	while (current_texture->next != NULL && !last_check) {
+		glheapnode_t* heapnode = current_texture->heap_node;
 
-			int imageview_index = -1;
+		int imageview_index = -1;
 			
-			while (heapnode->prev != NULL) {
-				heapnode = heapnode->prev;
-				imageview_index++;
-			}
-
-			texture_image_infos[imageview_index].imageView = current_texture->image_view;
-			texture_image_infos[imageview_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			texture_image_infos[imageview_index].sampler = vulkan_globals.linear_sampler_lod_bias;
-
-			image_count++;
-			current_texture = current_texture->next;
-
+		while (heapnode->prev != NULL) {
+			heapnode = heapnode->prev;
+			imageview_index++;
 		}
 
-		VkDescriptorImageInfo* texture_list_data = (VkDescriptorImageInfo*)malloc(image_count * sizeof(VkDescriptorImageInfo));
-		memcpy(texture_list_data, texture_image_infos, image_count * sizeof(VkDescriptorImageInfo));
+		texture_image_infos[imageview_index].imageView = current_texture->image_view;
+		texture_image_infos[imageview_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		texture_image_infos[imageview_index].sampler = vulkan_globals.linear_sampler_lod_bias;
 
-		// They may be empty imageviews, but i still have to set a valid sampler and image layout 
-		for (int i = 0; i < image_count; i++) {
-			VkDescriptorImageInfo image_info = texture_list_data[i];
-			if (image_info.sampler == NULL) {
-				texture_list_data[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				texture_list_data[i].sampler = vulkan_globals.linear_sampler_lod_bias;
-			}
-		}
-
-		vulkan_globals.texture_list = texture_list_data;
-		vulkan_globals.texture_list_count = image_count;
-
-		free(texture_image_infos);
+		image_count++;
+		current_texture = current_texture->next;
 	}
+
+	VkDescriptorImageInfo* texture_list_data = (VkDescriptorImageInfo*)malloc(image_count * sizeof(VkDescriptorImageInfo));
+	memcpy(texture_list_data, texture_image_infos, image_count * sizeof(VkDescriptorImageInfo));
+
+	// They may be empty imageviews, but i still have to set a valid sampler and image layout 
+	for (int i = 0; i < image_count; i++) {
+		VkDescriptorImageInfo image_info = texture_list_data[i];
+		if (image_info.sampler == NULL) {
+			texture_list_data[i].imageView = VK_NULL_HANDLE;
+			texture_list_data[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			texture_list_data[i].sampler = vulkan_globals.linear_sampler_lod_bias;
+		}
+	}
+
+	vulkan_globals.texture_list = texture_list_data;
+	vulkan_globals.texture_list_count = image_count;
+
+	free(texture_image_infos);
 }
 
 /*
