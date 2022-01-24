@@ -75,15 +75,19 @@ float getRelativeLuminance(vec3 tex_color){
 vec4 applyLuminance(vec4 color){
 	float maxvalue = max(max(color.x, color.y),color.z);
 	float luminance_factor = 25 * maxvalue;
-	if(color.x == maxvalue){
-		return vec4(color.x * luminance_factor, color.y, color.z, color.w);
-	}
-	else if(color.y == maxvalue){
-		return vec4(color.x, color.y * luminance_factor, color.z, color.w);
-	}
-	else if(color.z == maxvalue){
-		return vec4(color.x, color.y, color.z * luminance_factor, color.w);
-	}
+//	if(color.x == maxvalue){
+//		return vec4(color.x * luminance_factor, color.y, color.z, color.w);
+//	}
+//
+//	if(color.y == maxvalue){
+//		return vec4(color.x, color.y * luminance_factor, color.z, color.w);
+//	}
+//
+//	if(color.z == maxvalue){
+//		return vec4(color.x, color.y, color.z * luminance_factor, color.w);
+//	}
+
+	return color * luminance_factor;
 }
 
 void main()
@@ -140,7 +144,7 @@ void main()
 	bool hitLight = false;
 	bool hitSky = false;
 
-	if(getRelativeLuminance(fbcolor.xyz + txcolor.xyz) > 0.5){
+	if(getRelativeLuminance(fbcolor.xyz) > 0.5){
 		outColor = applyLuminance(fbcolor);
 		hitLight = true;
 	}
@@ -158,60 +162,13 @@ void main()
 
 	//if light was hit and not the sky
 	if(hitLight && !hitSky){
-		hitPayload.contribution *= fbcolor.xyz * 25;
+		hitPayload.contribution *= outColor.xyz;
 		hitPayload.done = true;
 	}
 
 	// if neither sky or a light source was hit (indirect lighting)
 	if(!hitLight){
 		outColor = txcolor + fbcolor;
-
-//		for(int i = 1; i < 2; i++)
-//		{
-//			lightEntity = lightEntitiesBuffer.l[i];
-//			lightDirection = lightEntity.origin_radius.xyz - position;
-//			L = normalize(lightDirection);
-//			NdotL = dot(geometricNormal, L);
-////
-//			if(NdotL > 0){
-//				lightDistance = length(lightDirection);
-//				lightIntensity = (250) / (lightDistance * lightDistance);
-//				attenuation = 1;
-//			
-//				float diffuse = NdotL * lightIntensity;
-//
-//				sumLightColor = diffuse * lightEntity.light_color.xyz;
-//			}
-//
-////			if(NdotL > 0){
-////				
-////
-////				float tMin   = 0.001;
-////				float tMax   = lightDistance;
-////				vec3  origin = position + (0.001 * L);
-////				vec3  rayDir = L;
-////				uint  flags =
-////					gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
-////
-////				isShadowed = true;
-////				traceRayEXT(topLevelAS,  // acceleration structure
-////						flags,       // rayFlags
-////						0xFF,        // cullMask
-////						0,           // sbtRecordOffset
-////						0,           // sbtRecordStride
-////						1,           // missIndex
-////						origin,      // ray origin
-////						tMin,        // ray min range
-////						rayDir,      // ray direction
-////						tMax,        // ray max range
-////						2            // payload (location = 2)
-////				);
-////
-////				if(!isShadowed){
-////					sumLightColor += diffuse * vec3(1);
-////				}
-////			}
-//		}
 
 		outColor.xyz *= sumLightColor;
 
