@@ -60,8 +60,8 @@ void main()
 	uint  rayFlags = gl_RayFlagsOpaqueEXT;
 	float tMin     = 0.001;
 	float tMax     = 10000.0;
-	uint maxDepth = 3;
-	uint maxSamples = 128;
+	uint maxDepth = 4;
+	uint maxSamples = 64;
 	vec3 summedPixelColor = vec3(0.0);
 	
 	for(uint sampleCount = 0; sampleCount < maxSamples; sampleCount++){

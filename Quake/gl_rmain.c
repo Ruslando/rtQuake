@@ -594,7 +594,7 @@ void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 				R_DrawAliasModel (currententity); // TODO: Remove comment
 				break;
 			case mod_brush:
-				//R_DrawBrushModel (currententity);
+				R_DrawBrushModel (currententity);
 				break;
 			case mod_sprite:
 				//R_DrawSpriteModel (currententity);
@@ -1244,7 +1244,7 @@ void RT_InitializeDynamicBuffers(void){
 }
 
 void RT_LoadDynamicAliasGeometry(void) {
-	//R_DrawViewModel();
+	R_DrawViewModel();
 	R_DrawEntitiesOnList(false);
 }
 

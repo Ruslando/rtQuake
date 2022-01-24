@@ -686,6 +686,8 @@ void R_DrawTextureChains_RTX(qmodel_t* model, entity_t* ent, texchain_t chain);
 void R_DrawTextureChains(qmodel_t* model, entity_t* ent, texchain_t chain);
 void R_DrawWorld_Water(void);
 
+void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, float mvp[16]);
+
 float GL_WaterAlphaForSurface(msurface_t* fa);
 
 int GL_MemoryTypeFromProperties(uint32_t type_bits, VkFlags requirements_mask, VkFlags preferred_mask);

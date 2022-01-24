@@ -283,8 +283,6 @@ void R_DrawBrushModel (entity_t *e)
 	memcpy(mvp, vulkan_globals.view_projection_matrix, 16 * sizeof(float));
 	MatrixMultiply(mvp, model_matrix);
 
-	
-
 	// Legacy raster code
 	//R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), mvp);
 	R_ClearTextureChains (clmodel, chain_model);
@@ -305,7 +303,8 @@ void R_DrawBrushModel (entity_t *e)
 	//R_DrawTextureChains_Water (clmodel, e, chain_model);
 	//R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), vulkan_globals.view_projection_matrix);
 	
-	R_DrawTextureChains_RTX(clmodel, e, chain_model);
+	//R_DrawTextureChains_RTX(clmodel, e, chain_model);
+	RT_LoadBrushModelIndices(clmodel, e, chain_model, model_matrix);
 }
 
 /*

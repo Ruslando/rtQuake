@@ -565,16 +565,13 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 RT_LoadBrushModelIndices
 ================
 */
-void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, const float alpha)
+void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, float mvp[16])
 {
 	int			i;
 	msurface_t* s;
 	texture_t* t;
 	qboolean	bound;
 	qboolean	fullbright_enabled = false;
-	//qboolean	alpha_test = false;
-	//qboolean	alpha_blend = alpha < 1.0f;
-	//qboolean	use_zbias = (gl_zfix.value && model != cl.worldmodel);
 	gltexture_t* fullbright = NULL;
 
 	// sets current overall index_count
@@ -584,9 +581,6 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 	int index_offset = vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count;
 
 	uint32_t* index_data_pointer = (uint32_t*)malloc(16000 * sizeof(uint32_t));
-
-	int minimum_index_value = INT_MAX;
-	int maximum_index_value = INT_MIN;
 	
 	// copy brush vertices from buffer;
 		// Make buffer mappable or somehow gather data from data
@@ -615,8 +609,6 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 		bound = false;
 		for (s = t->texturechains[chain]; s; s = s->texturechain)
 		{
-			s->vbo_firstvert + s->numedges - 1 > maximum_index_value ? maximum_index_value = s->vbo_firstvert + s->numedges - 1 : maximum_index_value;
-			s->vbo_firstvert < minimum_index_value ? minimum_index_value = s->vbo_firstvert : minimum_index_value;
 
 			if (!bound) //only bind once we are sure we need this texture
 			{
@@ -658,7 +650,23 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 
 			for (int j = 0; j < s->numedges; j++) {
 				int index = j + s->vbo_firstvert;
-				brush_vertex_data[j] = vertex_data[index];
+				rt_vertex_t current_vertex = vertex_data[index];
+
+				float vertex[16];
+				vertex[0] = current_vertex.vertex_pos[0];
+				vertex[1] = current_vertex.vertex_pos[1];
+				vertex[2] = current_vertex.vertex_pos[2];
+				vertex[3] = 1;
+
+				float matrix_copy[16];
+				memcpy(matrix_copy, mvp, 16 * sizeof(float));
+				MatrixMultiply(matrix_copy, vertex);
+
+				current_vertex.vertex_pos[0] = matrix_copy[0];
+				current_vertex.vertex_pos[1] = matrix_copy[1];
+				current_vertex.vertex_pos[2] = matrix_copy[2];
+
+				brush_vertex_data[j] = current_vertex;
 			}
 
 			VkBuffer dynamic_vertex_buffer;
@@ -671,9 +679,13 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 			rs_brushpasses++;
 		}
 
-		vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count += index_count;
 		vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count += 1;
+		if (vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count == 3) {
+			num_vbo_indices = 0;
+		}
 	}
+
+	vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count += index_count;
 
 	num_vbo_indices = 0;
 
@@ -770,23 +782,6 @@ void R_DrawTextureChains_Multitexture (qmodel_t *model, entity_t *ent, texchain_
 R_DrawWorld -- johnfitz -- rewritten
 =============
 */
-void R_DrawTextureChains_RTX(qmodel_t* model, entity_t* ent, texchain_t chain)
-{
-	float entalpha;
-
-	if (ent != NULL)
-		entalpha = ENTALPHA_DECODE(ent->alpha);
-	else
-		entalpha = 1;
-
-	RT_LoadBrushModelIndices(model, ent, chain, entalpha);
-}
-
-/*
-=============
-R_DrawWorld -- johnfitz -- rewritten
-=============
-*/
 void R_DrawTextureChains (qmodel_t *model, entity_t *ent, texchain_t chain)
 {
 	float entalpha;
@@ -820,7 +815,9 @@ void RT_LoadDynamicWorldIndices() {
 		return;
 	R_BeginDebugUtilsLabel("Dynamic World Indices");
 	// unlike this method says, world indices are dynamic. might change in future
-	RT_LoadBrushModelIndices(cl.worldmodel, NULL, chain_world, 1);
+	float mvp[16];
+	memset(mvp, 1, sizeof(mvp));
+	RT_LoadBrushModelIndices(cl.worldmodel, NULL, chain_world, mvp);
 	R_EndDebugUtilsLabel();
 }
 
