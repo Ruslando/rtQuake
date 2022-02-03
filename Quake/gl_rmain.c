@@ -327,7 +327,7 @@ void R_SetupCameraMatrices_RTX()
 	memcpy(data, &inverse_matrices, sizeof(raygen_uniform_t));
 	buffer_unmap(&vulkan_globals.rt_uniform_buffer);
 
-	//R_PushConstants(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, 0, sizeof(inverse_matrices), &inverse_matrices);
+	R_PushConstants(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, 0, sizeof(inverse_matrices), &inverse_matrices);
 
 }
 

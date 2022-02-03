@@ -3,17 +3,19 @@
 
 struct HitPayload
 {
+	uint sampleCount;
     vec3 contribution;
-    vec3 position;
-    vec3 normal;
+    vec3 origin;
+    vec3 direction;
     bool done;
 };
 
 layout(location = 0) rayPayloadInEXT HitPayload hitPayload;
 
+
 void main()
 {
-	hitPayload.contribution *= vec3(0.9, 0.9, 1.0) * 10;
-    //hitPayload.contribution *= vec3(0);
+    hitPayload.contribution *= vec3(1) * 5;
+    //hitPayload.contribution += vec3(1);
     hitPayload.done = true;
 }

@@ -1281,7 +1281,7 @@ void R_CreateDescriptorSetLayouts()
 	raygen_layout_bindings[2].binding = 2;
 	raygen_layout_bindings[2].descriptorCount = 1;
 	raygen_layout_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	raygen_layout_bindings[2].stageFlags =  VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+	raygen_layout_bindings[2].stageFlags =  VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 
 	//layout binding static vertex buffer
 	raygen_layout_bindings[3].binding = 3;
@@ -1543,7 +1543,8 @@ void R_CreatePipelineLayouts()
 	// Used for camera
 	memset(&push_constant_range, 0, sizeof(push_constant_range));
 	push_constant_range.offset = 0;
-	push_constant_range.size = 16 * sizeof(float) * 2; // one matrix for view_inverse and one for proj_inverse
+	//push_constant_range.size = sizeof(raygen_uniform_t) ; // one matrix for view_inverse and one for proj_inverse
+	push_constant_range.size = 16 * 2 * sizeof(float);
 	push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
 
 	pipeline_layout_create_info.setLayoutCount = 1;
