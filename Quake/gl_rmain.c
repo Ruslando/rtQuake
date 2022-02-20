@@ -38,6 +38,9 @@ int			render_pass_index;
 qboolean	render_warp;
 int			render_scale;
 
+extern cvar_t vid_rt_samples;
+extern cvar_t vid_rt_depth;
+
 //johnfitz -- rendering statistics
 unsigned int rs_brushpolys, rs_aliaspolys, rs_skypolys, rs_particles, rs_fogpolys;
 unsigned int rs_dynamiclightmaps, rs_brushpasses, rs_aliaspasses, rs_skypasses;
@@ -308,23 +311,28 @@ void R_SetupCameraMatrices_RTX()
 	TranslationMatrix(translation_matrix, -r_refdef.vieworg[0], -r_refdef.vieworg[1], -r_refdef.vieworg[2]);
 	MatrixMultiply(vulkan_globals.view_matrix, translation_matrix);
 
-	static raygen_uniform_t inverse_matrices;
+	static raygen_push_constants_t inverse_matrices;
+	static raygen_uniform_data_t frame_data;
+
 
 	InverseMatrix(vulkan_globals.view_matrix, inverse_matrices.view_inverse);
 	InverseMatrix(vulkan_globals.projection_matrix, inverse_matrices.proj_inverse);
-	inverse_matrices.frame = host_framecount;
+
+	frame_data.maxDepth = vid_rt_depth.value;
+	frame_data.maxSamples = vid_rt_samples.value;
+	frame_data.frame = host_framecount;
 
 	R_BindPipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline);
 
 	if (vulkan_globals.rt_uniform_buffer.buffer == NULL) {
 		BufferResource_t uniform_buffer_resource;
-		buffer_create(&uniform_buffer_resource, sizeof(raygen_uniform_t), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+		buffer_create(&uniform_buffer_resource, sizeof(raygen_uniform_data_t), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
 		vulkan_globals.rt_uniform_buffer = uniform_buffer_resource;
 	}
 
 	void* data = buffer_map(&vulkan_globals.rt_uniform_buffer);
-	memcpy(data, &inverse_matrices, sizeof(raygen_uniform_t));
+	memcpy(data, &frame_data, sizeof(raygen_uniform_data_t));
 	buffer_unmap(&vulkan_globals.rt_uniform_buffer);
 
 	R_PushConstants(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, 0, sizeof(inverse_matrices), &inverse_matrices);

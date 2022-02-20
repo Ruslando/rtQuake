@@ -1543,7 +1543,7 @@ void R_CreatePipelineLayouts()
 	// Used for camera
 	memset(&push_constant_range, 0, sizeof(push_constant_range));
 	push_constant_range.offset = 0;
-	//push_constant_range.size = sizeof(raygen_uniform_t) ; // one matrix for view_inverse and one for proj_inverse
+	//push_constant_range.size = sizeof(raygen_push_constants_t) ; // one matrix for view_inverse and one for proj_inverse
 	push_constant_range.size = 16 * 2 * sizeof(float);
 	push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
 

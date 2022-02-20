@@ -16,8 +16,8 @@ layout(location = 0) rayPayloadEXT HitPayload hitPayload;
 layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
 layout(set = 0, binding = 1, rgba32f) uniform image2D image;
 layout(set = 0, binding = 2) uniform FrameData {
-	mat4 view_inverse;
-	mat4 proj_inverse;
+	uint maxDepth;
+	uint maxSamples;
 	uint frame;
 } frameData;
 
@@ -25,7 +25,6 @@ layout(set = 0, binding = 2) uniform FrameData {
 layout(push_constant) uniform UniformData {
 	mat4 view_inverse;
 	mat4 proj_inverse;
-	uint frame;
 } uniformData;
 
 // Functions
@@ -66,8 +65,8 @@ void main()
 	uint  rayFlags = gl_RayFlagsOpaqueEXT;
 	float tMin     = 0.001;
 	float tMax     = 10000.0;
-	uint maxDepth = 2;
-	uint maxSamples = 32;
+	uint maxDepth = frameData.maxDepth;
+	uint maxSamples = frameData.maxSamples;
 	vec3 summedPixelColor = vec3(0.0);
 	
 	for(uint sampleCount = 0; sampleCount < maxSamples; sampleCount++){
@@ -113,7 +112,7 @@ void main()
 		// for controlling the different contribution layers
 		// (depth 0 = only emitting light, depth 1 = direct light
 		// depth 2 = indirect light first bounce, depth 3 = indirect light second bounce
-//		if(hitPayload.done == true && depth == 3){
+//		if(hitPayload.done == true && depth == 2){
 //			summedPixelColor += hitPayload.contribution;
 //		}
 		

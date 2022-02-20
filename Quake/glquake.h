@@ -145,11 +145,16 @@ extern int r_trace_line_cache_counter;
 
 // Ray generation shader structs
 
-typedef struct raygen_uniform_s {
+typedef struct raygen_uniform_data_s {
+	uint32_t maxDepth;
+	uint32_t maxSamples;
+	uint32_t frame;
+} raygen_uniform_data_t;
+
+typedef struct raygen_push_constants_s {
 	float view_inverse[16];
 	float proj_inverse[16];
-	int frame;
-} raygen_uniform_t;
+} raygen_push_constants_t;
 
 typedef struct BufferResource_s {
 	VkBuffer buffer;

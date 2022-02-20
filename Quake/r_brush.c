@@ -783,6 +783,12 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 				material = 1; // index for emissive
 			}
 
+			// skybox is considered emissive as well
+			if (s->flags & (SURF_DRAWSKY)) {
+				material = 2; // index for skylight
+				//continue;
+			}
+
 			// copy verts data to rt_verts (they are identical) and add texture indices and material index
 			for (int k = 0; k < s->numedges; k++) {
 
@@ -803,11 +809,6 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 
 			// ignores brushes that have no texture and where lightmaps were not applied
 			if (s->flags & (SURF_NOTEXTURE)) {
-				continue;
-			}
-
-			if (s->flags & (SURF_DRAWSKY)) {
-				material = 2; // index for skylight
 				continue;
 			}
 

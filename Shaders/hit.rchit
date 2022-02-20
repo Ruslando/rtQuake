@@ -46,15 +46,14 @@ layout(scalar, set = 0, binding = 8) readonly buffer LightEntitiesBuffer {LightE
 layout(scalar, set = 0, binding = 9) readonly buffer LightEntityIndicesBuffer {uint16_t[] li;} lightEntityIndices;
 
 layout(set = 0, binding = 2) uniform FrameData {
-	mat4 view_inverse;
-	mat4 proj_inverse;
+	uint maxDepth;
+	uint maxSamples;
 	uint frame;
 } frameData;
 
 layout(push_constant) uniform UniformData {
 	mat4 view_inverse;
 	mat4 proj_inverse;
-	uint frame;
 } uniformData;
 
 const highp float M_PI = 3.14159265358979323846;
@@ -172,6 +171,10 @@ void main()
 	if(getRelativeLuminance(fbcolor.xyz) > 0.5){
 		hitLight = true;
 	}
+	
+	if(v1.material_index == 2){
+		hitSky = true;
+	}
 
 	// if neither sky or a light source was hit (indirect lighting)
 //	if(!hitLight){
@@ -190,16 +193,24 @@ void main()
 	vec3 albedo = txcolor.xyz + fbcolor.xyz;
 
 	if(hitLight && !hitSky){
-		emittance = applyLuminance(fbcolor).xyz;
+		hitPayload.contribution *= applyLuminance(fbcolor).xyz;
 		hitPayload.done = true;
 	}
+	
+	if(hitSky)
+	{
+		hitPayload.contribution *= vec3(1) * 5;
+		hitPayload.done = true;
+	}
+	
+	if(!hitLight && !hitSky){
+		const float theta = 6.2831853 * rand(seed);  // Random in [0, 2pi]
+		const float u     = 2.0 * rand(seed) - 1.0;  // Random in [-1, 1]
+		const float r     = sqrt(1.0 - u * u);
 
-	const float theta = 6.2831853 * rand(seed);  // Random in [0, 2pi]
-	const float u     = 2.0 * rand(seed) - 1.0;  // Random in [-1, 1]
-	const float r     = sqrt(1.0 - u * u);
-
-	hitPayload.direction = normalize(geometricNormal + vec3(r * cos(theta), r * sin(theta), u));
-	hitPayload.origin = position + 0.0001 * geometricNormal;
-	hitPayload.contribution *= emittance + albedo;
+		hitPayload.direction = normalize(geometricNormal + vec3(r * cos(theta), r * sin(theta), u));
+		hitPayload.origin = position + 0.0001 * hitPayload.direction;
+		hitPayload.contribution *= albedo;
+	}
 	
 }

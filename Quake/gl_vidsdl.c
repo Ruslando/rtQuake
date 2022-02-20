@@ -98,6 +98,8 @@ static cvar_t	vid_refreshrate = { "vid_refreshrate", "60", CVAR_ARCHIVE };
 static cvar_t	vid_vsync = { "vid_vsync", "0", CVAR_ARCHIVE };
 static cvar_t	vid_desktopfullscreen = { "vid_desktopfullscreen", "0", CVAR_ARCHIVE }; // QuakeSpasm
 static cvar_t	vid_borderless = { "vid_borderless", "0", CVAR_ARCHIVE }; // QuakeSpasm
+cvar_t	vid_rt_samples = { "vid_rt_samples", "1", CVAR_ARCHIVE };
+cvar_t	vid_rt_depth = { "vid_rt_depth", "2", CVAR_ARCHIVE };
 cvar_t	vid_filter = { "vid_filter", "0", CVAR_ARCHIVE };
 cvar_t	vid_anisotropic = { "vid_anisotropic", "0", CVAR_ARCHIVE };
 cvar_t vid_fsaa = { "vid_fsaa", "0", CVAR_ARCHIVE };
@@ -2660,6 +2662,8 @@ void	VID_Init(void)
 					 "vid_borderless" };
 #define num_readvars	( sizeof(read_vars)/sizeof(read_vars[0]) )
 
+	Cvar_RegisterVariable(&vid_rt_samples);
+	Cvar_RegisterVariable(&vid_rt_depth);
 	Cvar_RegisterVariable(&vid_fullscreen); //johnfitz
 	Cvar_RegisterVariable(&vid_width); //johnfitz
 	Cvar_RegisterVariable(&vid_height); //johnfitz
@@ -2948,6 +2952,8 @@ typedef struct {
 	int				vid_filter;
 	int				vid_anisotropic;
 	int				r_scale;
+	int				vid_rt_samples;
+	int				vid_rt_depth;
 } vid_menu_settings_t;
 
 static vid_menu_settings_t menu_settings;
@@ -2979,6 +2985,9 @@ void VID_SyncCvars(void)
 	menu_settings.vid_filter = CLAMP(0, (int)vid_filter.value, 1);
 	menu_settings.vid_anisotropic = CLAMP(0, (int)vid_anisotropic.value, 1);
 	menu_settings.r_scale = CLAMP(1, (int)r_scale.value, 8);
+	menu_settings.vid_rt_samples = CLAMP(1, (int)vid_rt_samples.value, 512);
+	menu_settings.vid_rt_depth = CLAMP(2, (int)vid_rt_depth.value, 8);
+	
 
 	vid_changed = false;
 }
@@ -2990,6 +2999,8 @@ void VID_SyncCvars(void)
 //==========================================================================
 
 enum {
+	VID_OPT_RT_SAMPLE,
+	VID_OPT_RT_DEPTH,
 	VID_OPT_MODE,
 	VID_OPT_BPP,
 	VID_OPT_REFRESHRATE,
@@ -3161,6 +3172,52 @@ static void VID_Menu_RebuildRateList(void)
 
 	if (i == vid_menu_numrates)
 		Cvar_SetValue("vid_refreshrate", (float)vid_menu_rates[0]);
+}
+
+/*
+================
+VID_Menu_ChooseNextRTSamples
+================
+*/
+static void VID_Menu_ChooseNextRTSamples(int dir)
+{
+	int value = menu_settings.vid_rt_samples;
+
+	if (dir > 0)
+	{
+		value *= 2;
+	}
+	else
+	{
+		value /= 2;
+	}
+
+	value = CLAMP(1, value, 512);
+
+	menu_settings.vid_rt_samples = value;
+}
+
+/*
+================
+VID_Menu_ChooseNextRTDepth
+================
+*/
+static void VID_Menu_ChooseNextRTDepth(int dir)
+{
+	int value = menu_settings.vid_rt_depth;
+
+	if (dir > 0)
+	{
+		value += 1;
+	}
+	else
+	{
+		value -= 1;
+	}
+	
+	value = CLAMP(2, value, 8);
+
+	menu_settings.vid_rt_depth = value;
 }
 
 /*
@@ -3447,6 +3504,12 @@ static void VID_MenuKey(int key)
 		S_LocalSound("misc/menu3.wav");
 		switch (video_options_cursor)
 		{
+		case VID_OPT_RT_SAMPLE:
+			VID_Menu_ChooseNextRTSamples(-1);
+			break;
+		case VID_OPT_RT_DEPTH:
+			VID_Menu_ChooseNextRTDepth(-1);
+			break;
 		case VID_OPT_MODE:
 			VID_Menu_ChooseNextMode(1);
 			break;
@@ -3495,6 +3558,12 @@ static void VID_MenuKey(int key)
 		S_LocalSound("misc/menu3.wav");
 		switch (video_options_cursor)
 		{
+		case VID_OPT_RT_SAMPLE:
+			VID_Menu_ChooseNextRTSamples(1);
+			break;
+		case VID_OPT_RT_DEPTH:
+			VID_Menu_ChooseNextRTDepth(1);
+			break;
 		case VID_OPT_MODE:
 			VID_Menu_ChooseNextMode(-1);
 			break;
@@ -3544,6 +3613,12 @@ static void VID_MenuKey(int key)
 		m_entersound = true;
 		switch (video_options_cursor)
 		{
+		case VID_OPT_RT_SAMPLE:
+			VID_Menu_ChooseNextRTSamples(1);
+			break;
+		case VID_OPT_RT_DEPTH:
+			VID_Menu_ChooseNextRTDepth(1);
+			break;
 		case VID_OPT_MODE:
 			VID_Menu_ChooseNextMode(1);
 			break;
@@ -3590,6 +3665,8 @@ static void VID_MenuKey(int key)
 			Cvar_SetValueQuick(&vid_filter, menu_settings.vid_filter);
 			Cvar_SetValueQuick(&vid_anisotropic, menu_settings.vid_anisotropic);
 			Cvar_SetValueQuick(&r_scale, menu_settings.r_scale);
+			Cvar_SetValueQuick(&vid_rt_samples, menu_settings.vid_rt_samples);
+			Cvar_SetValueQuick(&vid_rt_depth, menu_settings.vid_rt_depth);
 			Cbuf_AddText("vid_restart\n");
 			key_dest = key_game;
 			m_state = m_none;
@@ -3639,6 +3716,14 @@ static void VID_MenuDraw(void)
 	{
 		switch (i)
 		{
+		case VID_OPT_RT_SAMPLE:
+			M_Print(16, y, "   Ray sample rate");
+			M_Print(184, y, va("%i", (int)menu_settings.vid_rt_samples));
+			break;
+		case VID_OPT_RT_DEPTH:
+			M_Print(16, y, "    Ray depth rate");
+			M_Print(184, y, va("%i", (int)menu_settings.vid_rt_depth));
+			break;
 		case VID_OPT_MODE:
 			M_Print(16, y, "        Video mode");
 			M_Print(184, y, va("%ix%i", (int)vid_width.value, (int)vid_height.value));
