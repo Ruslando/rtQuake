@@ -414,8 +414,8 @@ void R_DrawAliasModel (entity_t *e) //(entity_t *e, qboolean rt)
 	//
 	// cull it
 	//
-	if (R_CullModelForEntity(e))
-		return;
+	/*if (R_CullModelForEntity(e))
+		return;*/
 
 	//
 	// transform it

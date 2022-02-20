@@ -593,8 +593,8 @@ void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 		//johnfitz
 
 		//spike -- this would be more efficient elsewhere, but its more correct here.
-		if (currententity->eflags & EFLAGS_EXTERIORMODEL)
-			continue;
+		/*if (currententity->eflags & EFLAGS_EXTERIORMODEL)
+			continue;*/
 
 		switch (currententity->model->type)
 		{
@@ -965,10 +965,6 @@ VkResult R_UpdateRaygenDescriptorSets()
 {	
 	int current_frame_index = vulkan_globals.current_command_buffer;
 
-	if (vulkan_globals.raygen_desc_set[current_frame_index] == VK_NULL_HANDLE) {
-		vulkan_globals.raygen_desc_set[current_frame_index] = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
-	}
-
 	// output image info
 	VkDescriptorImageInfo pt_output_image_info;
 	memset(&pt_output_image_info, 0, sizeof(VkDescriptorImageInfo));
@@ -1085,27 +1081,20 @@ VkResult R_UpdateRaygenDescriptorSets()
 	raygen_writes[6].pBufferInfo = &dynamic_index_buffer_info;
 
 	raygen_writes[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[7].dstBinding = 7;
-	raygen_writes[7].descriptorCount = vulkan_globals.texture_list_count;
-	raygen_writes[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	raygen_writes[7].dstBinding = 8;
+	raygen_writes[7].descriptorCount = 1;
+	raygen_writes[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	raygen_writes[7].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
-	raygen_writes[7].pImageInfo = vulkan_globals.texture_list;
+	raygen_writes[7].pBufferInfo = &lightEntitiesBufferInfo;
 
 	raygen_writes[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[8].dstBinding = 8;
+	raygen_writes[8].dstBinding = 9;
 	raygen_writes[8].descriptorCount = 1;
 	raygen_writes[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	raygen_writes[8].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
-	raygen_writes[8].pBufferInfo = &lightEntitiesBufferInfo;
+	raygen_writes[8].pBufferInfo = &lightEntitiesIndexListBufferInfo;
 
-	raygen_writes[9].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[9].dstBinding = 9;
-	raygen_writes[9].descriptorCount = 1;
-	raygen_writes[9].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	raygen_writes[9].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
-	raygen_writes[9].pBufferInfo = &lightEntitiesIndexListBufferInfo;
-
-	vkUpdateDescriptorSets(vulkan_globals.device, 10, raygen_writes, 0, NULL);
+	vkUpdateDescriptorSets(vulkan_globals.device, 9, raygen_writes, 0, NULL);
 
 	return VK_SUCCESS;
 }
@@ -1256,6 +1245,16 @@ void RT_LoadDynamicAliasGeometry(void) {
 	R_DrawEntitiesOnList(false);
 }
 
+void R_AllocateDescriptorSets(void) {
+	if (vulkan_globals.raygen_desc_set[0] == VK_NULL_HANDLE) {
+		vulkan_globals.raygen_desc_set[0] = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
+	}
+
+	if (vulkan_globals.raygen_desc_set[1] == VK_NULL_HANDLE) {
+		vulkan_globals.raygen_desc_set[1] = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
+	}
+}
+
 /*
 ================
 R_RenderScene_RTX
@@ -1265,6 +1264,8 @@ void R_RenderScene_RTX(void)
 {
 	static entity_t r_worldentity;	//so we can make sure currententity is valid
 	currententity = &r_worldentity;
+
+	R_AllocateDescriptorSets();
 
 	TexMgr_LoadActiveTextures();
 	R_SetupCameraMatrices_RTX();
@@ -1287,7 +1288,6 @@ void R_RenderScene_RTX(void)
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 		}
 	}
-	
 
 	// Reset blas data each frame
 	rt_blas_data_t* blas_data = malloc(2 * sizeof(rt_blas_data_t));

@@ -237,8 +237,8 @@ void R_DrawBrushModel (entity_t *e)
 	mplane_t	*pplane;
 	qmodel_t	*clmodel;
 
-	if (R_CullModelForEntity(e))
-		return;
+	/*if (R_CullModelForEntity(e))
+		return;*/
 
 	currententity = e;
 	clmodel = e->model;
