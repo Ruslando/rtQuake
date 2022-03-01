@@ -718,7 +718,7 @@ VkResult R_UpdateRaygenDescriptorSets();
 
 // Acceleration structures
 // Creates bottom level acceleration strucuture (BLAS)
-void R_Create_BLAS_Instance(accel_struct_t* accel_struct, VkBuffer vertex_buffer,
+void RT_Create_BLAS_Instance(accel_struct_t* accel_struct, VkBuffer vertex_buffer,
 	uint32_t vertex_offset, uint32_t num_vertices, uint32_t num_triangles, uint32_t stride,
 	VkBuffer index_buffer, uint32_t num_indices, uint32_t index_offset, VkFormat format, VkIndexType index_type, VkBuffer transform_data);
 void R_Create_TLAS(int num_instances);

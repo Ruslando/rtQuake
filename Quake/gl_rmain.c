@@ -1099,7 +1099,7 @@ VkResult R_UpdateRaygenDescriptorSets()
 	return VK_SUCCESS;
 }
 
-void R_Create_BLAS_Instance(accel_struct_t* accel_struct, VkBuffer vertex_buffer,
+void RT_Create_BLAS_Instance(accel_struct_t* accel_struct, VkBuffer vertex_buffer,
 	uint32_t vertex_offset, uint32_t num_vertices, uint32_t num_triangles, uint32_t stride,
 	VkBuffer index_buffer, uint32_t num_indices, uint32_t index_offset, VkFormat format, VkIndexType index_type, VkBuffer transform_data)
 {
@@ -1318,7 +1318,7 @@ void R_RenderScene_RTX(void)
 	//int blas_count = vulkan_globals.rt_current_blas_index + 1;
 	
 	// static model blas
-	R_Create_BLAS_Instance(&vulkan_globals.blas_instances[vulkan_globals.current_command_buffer].static_blas, vulkan_globals.rt_static_vertex_buffer_resource.buffer,
+	RT_Create_BLAS_Instance(&vulkan_globals.blas_instances[vulkan_globals.current_command_buffer].static_blas, vulkan_globals.rt_static_vertex_buffer_resource.buffer,
 		0, vulkan_globals.rt_static_vertex_count,
 		vulkan_globals.rt_static_index_count / 3, sizeof(rt_vertex_t), vulkan_globals.rt_static_index_buffer,
 		vulkan_globals.rt_static_index_count, 0,
@@ -1327,7 +1327,7 @@ void R_RenderScene_RTX(void)
 
 	//// dynamic model blas
 	rt_blas_data_t dynamic_blas = blas_data[1];
-	R_Create_BLAS_Instance(&vulkan_globals.blas_instances[vulkan_globals.current_command_buffer].dynamic_blas, vulkan_globals.rt_dynamic_vertex_buffer,
+	RT_Create_BLAS_Instance(&vulkan_globals.blas_instances[vulkan_globals.current_command_buffer].dynamic_blas, vulkan_globals.rt_dynamic_vertex_buffer,
 		dynamic_blas.vertex_buffer_offset, dynamic_blas.vertex_count,
 		dynamic_blas.index_count / 3, sizeof(rt_vertex_t), vulkan_globals.rt_dynamic_index_buffer,
 		dynamic_blas.index_count, dynamic_blas.index_buffer_offset,

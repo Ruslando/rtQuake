@@ -176,18 +176,6 @@ void main()
 		hitSky = true;
 	}
 
-	// if neither sky or a light source was hit (indirect lighting)
-//	if(!hitLight){
-//		outColor = txcolor + fbcolor;
-//
-//		outColor.xyz *= sumLightColor;
-//
-//		hitPayload.contribution *= outColor.xyz;
-//		hitPayload.position = position;
-//		hitPayload.normal = geometricNormal;
-//
-//	}
-
 	vec3 emittance = vec3(0);
 	vec3 brdf = vec3(0);
 	vec3 albedo = txcolor.xyz + fbcolor.xyz;
@@ -199,16 +187,16 @@ void main()
 	
 	if(hitSky)
 	{
-		hitPayload.contribution *= vec3(1) * 5;
+		hitPayload.contribution *= vec3(1) * 2;
 		hitPayload.done = true;
 	}
 	
 	if(!hitLight && !hitSky){
-		const float theta = 6.2831853 * rand(seed);  // Random in [0, 2pi]
+		const float theta = M_PI * 2 * rand(seed);  // Random in [0, 2pi]
 		const float u     = 2.0 * rand(seed) - 1.0;  // Random in [-1, 1]
 		const float r     = sqrt(1.0 - u * u);
 
-		hitPayload.direction = normalize(geometricNormal + vec3(r * cos(theta), r * sin(theta), u));
+		hitPayload.direction = geometricNormal + vec3(r * cos(theta), r * sin(theta), u);
 		hitPayload.origin = position + 0.0001 * hitPayload.direction;
 		hitPayload.contribution *= albedo;
 	}

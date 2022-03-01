@@ -230,7 +230,7 @@ R_DrawBrushModel
 */
 void R_DrawBrushModel (entity_t *e)
 {
-	int			i, k;
+	int			i;
 	i;
 	msurface_t	*psurf;
 	float		dot;
@@ -260,7 +260,7 @@ void R_DrawBrushModel (entity_t *e)
 
 // calculate dynamic lighting for bmodel if it's not an
 // instanced model
-	if (clmodel->firstmodelsurface != 0)
+	/*if (clmodel->firstmodelsurface != 0)
 	{
 		for (k=0 ; k<MAX_DLIGHTS ; k++)
 		{
@@ -271,7 +271,7 @@ void R_DrawBrushModel (entity_t *e)
 			R_MarkLights (&cl_dlights[k], k,
 				clmodel->nodes + clmodel->hulls[0].firstclipnode);
 		}
-	}
+	}*/
 
 	e->angles[0] = -e->angles[0];	// stupid quake bug
 	float model_matrix[16];
