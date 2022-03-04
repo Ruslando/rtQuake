@@ -168,7 +168,7 @@ void main()
 	bool hitLight = false;
 	bool hitSky = false;
 
-	if(getRelativeLuminance(fbcolor.xyz) > 0.5){
+	if(getRelativeLuminance(fbcolor.xyz) > 0.05){
 		hitLight = true;
 	}
 	
@@ -187,7 +187,7 @@ void main()
 	
 	if(hitSky)
 	{
-		hitPayload.contribution *= vec3(1) * 2;
+		hitPayload.contribution *= vec3(1) * 10;
 		hitPayload.done = true;
 	}
 	
