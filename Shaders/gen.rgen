@@ -2,41 +2,129 @@
 #extension GL_EXT_ray_tracing : require
 #extension GL_GOOGLE_include_directive : enable
 
-layout(location = 0) rayPayloadEXT vec3 hitPayload;
+struct HitPayload
+{
+	uint sampleCount;
+    vec3 contribution;
+    vec3 origin;
+    vec3 direction;
+    bool done;
+};
+
+layout(location = 0) rayPayloadEXT HitPayload hitPayload;
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
 layout(set = 0, binding = 1, rgba32f) uniform image2D image;
-layout(set = 0, binding = 2) uniform Camera {
+layout(set = 0, binding = 2) uniform FrameData {
+	uint maxDepth;
+	uint maxSamples;
+	uint frame;
+} frameData;
+
+
+layout(push_constant) uniform UniformData {
 	mat4 view_inverse;
 	mat4 proj_inverse;
-} camera;
+} uniformData;
+
+// Functions
+
+uint pcg(inout uint state)
+{
+    uint prev = state * 747796405u + 2891336453u;
+    uint word = ((prev >> ((prev >> 28u) + 4u)) ^ prev) * 277803737u;
+    state     = prev;
+    return (word >> 22u) ^ word;
+}
+
+uvec2 pcg2d(uvec2 v)
+{
+    v = v * 1664525u + 1013904223u;
+
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+
+    v = v ^ (v >> 16u);
+
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+
+    v = v ^ (v >> 16u);
+
+    return v;
+}
+
+float rand(inout uint seed)
+{
+    uint val = pcg(seed);
+    return (float(val) * (1.0 / float(0xffffffffu)));
+}
 
 void main()
 {
-	const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
-	const vec2 inUV        = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
-	vec2       d           = inUV * 2.0 - 1.0;
-
-	vec4 origin    = camera.view_inverse * vec4(0, 0, 0, 1);
-	vec4 target    = camera.proj_inverse * vec4(d.x, d.y, 1, 1);
-	vec4 direction = camera.view_inverse * vec4(normalize(target.xyz), 0);
-
 	uint  rayFlags = gl_RayFlagsOpaqueEXT;
 	float tMin     = 0.001;
 	float tMax     = 10000.0;
+	uint maxDepth = frameData.maxDepth;
+	uint maxSamples = frameData.maxSamples;
+	vec3 summedPixelColor = vec3(0.0);
+	
+	for(uint sampleCount = 0; sampleCount < maxSamples; sampleCount++){
+		uvec2 s = pcg2d(ivec2(gl_LaunchIDEXT.xy) * (sampleCount + frameData.frame));
+        uint seed = s.x + s.y;
+		
+		const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(rand(seed), rand(seed));
+		const vec2 inUV        = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
+		vec2       d           = inUV * 2.0 - 1.0;
+		
+		vec4 origin    = uniformData.view_inverse * vec4(0, 0, 0, 1);
+		vec4 target    = uniformData.proj_inverse * vec4(d.x, d.y, 1, 1);
+		vec4 direction = uniformData.view_inverse * vec4(normalize(target.xyz), 0);
+		
+		uint depth;
 
-	traceRayEXT(topLevelAS,     // acceleration structure
-			  rayFlags,       // rayFlags
-			  0xFF,           // cullMask
-			  0,              // sbtRecordOffset
-			  0,              // sbtRecordStride
-			  0,              // missIndex
-			  origin.xyz,     // ray origin
-			  tMin,           // ray min range
-			  direction.xyz,  // ray direction
-			  tMax,           // ray max range
-			  0               // payload (location = 0)
-	);
-
-	imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(hitPayload, 1.0f));
+		hitPayload.sampleCount = sampleCount;
+		hitPayload.contribution = vec3(1.0);
+        hitPayload.done = false;
+		
+		for(depth = 0; depth < maxDepth; depth++){
+			traceRayEXT(
+				topLevelAS,     // acceleration structure
+				rayFlags,       // rayFlags
+				0xFF,           // cullMask
+				0,              // sbtRecordOffset
+				0,              // sbtRecordStride
+				0,              // missIndex
+				origin.xyz,     // ray origin
+				tMin,           // ray min range
+				direction.xyz,  // ray direction
+				tMax,           // ray max range
+				0               // hitPayload (location = 0)
+			);
+			if(hitPayload.done){
+				break;
+			}
+			
+			direction = vec4(hitPayload.direction, 0);
+			origin = vec4(hitPayload.origin, 1);
+		}
+		
+		// for controlling the different contribution layers
+		// (depth 0 = only emitting light, depth 1 = direct light
+		// depth 2 = indirect light first bounce, depth 3 = indirect light second bounce
+//		if(hitPayload.done == true && depth == 2){
+//			summedPixelColor += hitPayload.contribution;
+//		}
+		
+		// does not contribute if ray path has not hit a light
+		// this is needed because right now, the miss shader acts as the sky light emitting white
+		// light. so a miss is not necessary a miss, but only if it has not hit any real light source
+		if(hitPayload.done == true){
+			summedPixelColor += hitPayload.contribution;
+		}
+	}
+	
+	summedPixelColor /= maxSamples;
+	
+	imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(summedPixelColor, 0));
 }

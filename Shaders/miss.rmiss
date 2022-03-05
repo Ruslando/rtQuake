@@ -1,9 +1,20 @@
 #version 460
 #extension GL_EXT_ray_tracing : require
 
-layout(location = 0) rayPayloadInEXT vec3 hitPayload;
+struct HitPayload
+{
+	uint sampleCount;
+    vec3 contribution;
+    vec3 origin;
+    vec3 direction;
+    bool done;
+};
+
+layout(location = 0) rayPayloadInEXT HitPayload hitPayload;
+
 
 void main()
 {
-	hitPayload = vec3(0.0, 0.1, 0.3);
+    hitPayload.contribution = vec3(0);
+    hitPayload.done = true;
 }

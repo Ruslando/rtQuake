@@ -2175,6 +2175,179 @@ void Mod_LoadSubmodels (lump_t *l)
 }
 
 /*
+====================
+Mod_ParseEdictForLightData
+
+Parses an edict out of the given string, returning possible light data
+====================
+*/
+const char* Mod_ParseEdictForLightData(const char* data, edict_light_t* ent)
+{
+	//ddef_t* key;
+	char		keyname[256];
+	qboolean	init;
+	int		n;
+
+	init = false;
+
+	// go through all the dictionary pairs
+	while (1)
+	{
+		// parse key
+		data = COM_Parse(data);
+		if (com_token[0] == '}')
+			break;
+		if (!data)
+			Host_Error("ED_ParseEntity: EOF without closing brace");
+
+
+		// FIXME: change light to _light to get rid of this hack
+		if (!strcmp(com_token, "light"))
+			strcpy(com_token, "light_lev");	// hack for single light def
+
+		q_strlcpy(keyname, com_token, sizeof(keyname));
+
+		// another hack to fix keynames with trailing spaces
+		n = strlen(keyname);
+		while (n && keyname[n - 1] == ' ')
+		{
+			keyname[n - 1] = 0;
+			n--;
+		}
+
+		// parse value
+		data = COM_Parse(data);
+		if (!data)
+			Host_Error("ED_ParseEntity: EOF without closing brace");
+
+		if (com_token[0] == '}')
+			Host_Error("ED_ParseEntity: closing brace without data");
+
+		init = true;
+
+		// keynames with a leading underscore are used for utility comments,
+		// and are immediately discarded by quake
+		if (keyname[0] == '_')
+			continue;
+
+		if (!strcmp(keyname, "classname")) {
+			//ent->light = atof(com_token);
+			strcpy(ent->clientClassName, com_token);
+		}
+
+		if (!strcmp(keyname, "origin")) {
+			char* v, * w;
+			char* end;
+			char	string[128];
+			q_strlcpy(string, com_token, sizeof(string));
+			end = (char*)string + strlen(string);
+			v = string;
+			w = string;
+
+			for (int i = 0; i < 3 && (w <= end); i++) // ericw -- added (w <= end) check
+			{
+				// set v to the next space (or 0 byte), and change that char to a 0 byte
+				while (*v && *v != ' ')
+					v++;
+				*v = 0;
+				ent->clientOrigin[i] = atof(w);
+				w = v = v + 1;
+			}
+		}
+
+		if (!strcmp(keyname, "light_lev")) {
+			ent->light = atof(com_token);
+		}
+
+		if (!strcmp(keyname, "style")) {
+			ent->light_style = atoi(com_token);
+		}
+	}
+
+	return data;
+}
+
+/*
+=================
+Mod_LoadLightEntities
+=================
+*/
+void Mod_LoadLightEntities(void) {
+
+	R_InitWorldLightEntities();
+
+	qboolean rtLightsFile = false;	// do not support rt files right now
+	// Load light entities copied from quakertx dx12 project
+	const char* data = loadmodel->entities;
+
+	edict_light_t ent;
+	while (1)
+	{
+		memset(&ent, 0, sizeof(ent));
+
+		// parse the opening brace
+		data = COM_Parse(data);
+		if (!data)
+			break;
+		if (com_token[0] != '{')
+			Host_Error("ED_LoadFromFile: found %s when expecting {", com_token);
+
+		data = Mod_ParseEdictForLightData(data, &ent);
+
+		if (!rtLightsFile)
+		{
+			const char* entityName = ent.clientClassName;
+			if (strstr(entityName, "light")) {
+
+				// strcmp returns 0 when true, so we have to negate it. this choice is confusing
+				if (!strcmp(entityName, "light_flame_large_yellow")) {
+					ent.clientOrigin[2] += 20;
+
+					if (ent.light == 0) {
+						ent.light = 300;
+					}
+
+					R_AddWorldLightEntity(ent.clientOrigin[0], ent.clientOrigin[1], ent.clientOrigin[2], ent.light, ent.light_style, 1.0f, 1.0f, 0.0f);
+				}
+
+				if (!strcmp(entityName, "light_flame_small_yellow")) {
+					ent.clientOrigin[2] += 20;
+
+					if (ent.light == 0) {
+						ent.light = 200;
+					}
+
+					R_AddWorldLightEntity(ent.clientOrigin[0], ent.clientOrigin[1], ent.clientOrigin[2], ent.light, ent.light_style, 1.0f, 1.0f, 0.0f);
+				}
+
+				if (!strcmp(entityName, "light_flame_small_white")) {
+					ent.clientOrigin[2] += 20;
+
+					if (ent.light == 0) {
+						ent.light = 200;
+					}
+
+					R_AddWorldLightEntity(ent.clientOrigin[0], ent.clientOrigin[1], ent.clientOrigin[2], ent.light, ent.light_style, 1.0f, 1.0f, 1.0f);
+				}
+
+				if (!strcmp(entityName, "light_torch_small_walltorch")) {
+					ent.clientOrigin[2] += 20;
+
+					if (ent.light == 0) {
+						ent.light = 200;
+					}
+
+					R_AddWorldLightEntity(ent.clientOrigin[0], ent.clientOrigin[1], ent.clientOrigin[2], ent.light, ent.light_style, 1.0f, 1.0f, 0.0f);
+				}
+
+			}
+		}
+	}
+
+	R_CopyLightEntitiesToBuffer();
+}
+
+/*
 =================
 Mod_BoundsFromClipNode -- johnfitz
 
@@ -2409,6 +2582,7 @@ visdone:
 	Mod_LoadClipnodes (&header->lumps[LUMP_CLIPNODES], bsp2);
 	Mod_LoadEntities (&header->lumps[LUMP_ENTITIES]);
 	Mod_LoadSubmodels (&header->lumps[LUMP_MODELS]);
+	Mod_LoadLightEntities();
 
 	Mod_PrepareSIMDData ();
 	Mod_MakeHull0 ();
@@ -2429,6 +2603,13 @@ visdone:
 	{
 		bm = &mod->submodels[i];
 
+		if (i > 0) {
+			for (int d = 0; d < bm->numfaces; d++)
+			{
+				mod->surfaces[bm->firstface + d].bmodelindex = i + 1;
+			}
+		}
+		
 		mod->hulls[0].firstclipnode = bm->headnode[0];
 		for (j=1 ; j<MAX_MAP_HULLS ; j++)
 		{

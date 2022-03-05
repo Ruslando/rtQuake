@@ -55,6 +55,13 @@ typedef struct edict_s
 	/* other fields from progs come immediately after */
 } edict_t;
 
+typedef struct edict_light_s {
+	char	clientClassName[256];
+	vec3_t  clientOrigin;
+	int     light;
+	int     light_style;
+} edict_light_t;
+
 #define	EDICT_FROM_AREA(l)	STRUCT_FROM_LINK(l,edict_t,area)
 
 //============================================================================

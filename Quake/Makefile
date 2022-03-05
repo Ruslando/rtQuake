@@ -219,6 +219,7 @@ SHADER_OBJS = \
 	gen_ray.o \
 	hit_ray.o \
 	miss_ray.o \
+	shadow_miss_ray.o \
 	basic_frag.o \
 	basic_notex_frag.o \
 	basic_vert.o \

@@ -376,6 +376,81 @@ void TexMgr_NewGame (void)
 	TexMgr_LoadPalette ();
 }
 
+void TexMgr_LoadActiveTextures(void)
+{
+
+	// TODO: Only run when loading new level or on respawn
+	free(vulkan_globals.texture_list);
+	VkDescriptorImageInfo* texture_image_infos = (VkDescriptorImageInfo*)malloc(MAX_GLTEXTURES * sizeof(VkDescriptorImageInfo));
+	memset(texture_image_infos, 0, MAX_GLTEXTURES * sizeof(VkDescriptorImageInfo));
+
+	gltexture_t* current_texture = active_gltextures;
+
+	int maxImageIndex = -1;
+
+	qboolean last_check = false;
+	while (current_texture->next != NULL && !last_check) {
+		glheapnode_t* heapnode = current_texture->heap_node;
+
+		int imageview_index = -1;
+			
+		while (heapnode->prev != NULL) {
+			heapnode = heapnode->prev;
+			imageview_index++;
+		}
+
+		if (imageview_index > maxImageIndex) {
+			maxImageIndex = imageview_index;
+		}
+
+		texture_image_infos[imageview_index].imageView = current_texture->image_view;
+		texture_image_infos[imageview_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		texture_image_infos[imageview_index].sampler = vulkan_globals.linear_sampler_lod_bias;
+
+		current_texture = current_texture->next;
+	}
+
+	// only update descriptor set when active texture count changes
+	if (maxImageIndex != vulkan_globals.texture_list_count) {
+
+		// reallocates descriptor sets when texture count is lower then before
+		// because descriptors would still keep old texture data even after update
+		if (maxImageIndex < vulkan_globals.texture_list_count) {
+			vulkan_globals.raygen_desc_set[0] = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
+			vulkan_globals.raygen_desc_set[1] = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
+		}
+
+		// They may be empty imageviews, but i still have to set a valid sampler and image layout 
+		for (int i = 0; i < MAX_GLTEXTURES; i++) {
+			VkDescriptorImageInfo image_info = texture_image_infos[i];
+			if (image_info.sampler == NULL) {
+				texture_image_infos[i].imageView = VK_NULL_HANDLE;
+				texture_image_infos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				texture_image_infos[i].sampler = vulkan_globals.linear_sampler_lod_bias;
+			}
+		}
+
+		vulkan_globals.texture_list = texture_image_infos;
+		vulkan_globals.texture_list_count = maxImageIndex;
+
+		VkWriteDescriptorSet raygen_writes[2];
+		memset(&raygen_writes, 0, sizeof(raygen_writes));
+
+		for (int i = 0; i < 2; i++) {
+			raygen_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			raygen_writes[i].dstBinding = 7;
+			raygen_writes[i].descriptorCount = maxImageIndex;
+			raygen_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			raygen_writes[i].dstSet = vulkan_globals.raygen_desc_set[i];
+			raygen_writes[i].pImageInfo = vulkan_globals.texture_list;
+		}
+
+ 		vkUpdateDescriptorSets(vulkan_globals.device, 2, raygen_writes, 0, NULL);
+	}
+
+	//free(texture_image_infos);
+}
+
 /*
 ================
 TexMgr_Init
@@ -866,6 +941,7 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 	GL_SetObjectName((uint64_t)glt->image_view, VK_OBJECT_TYPE_IMAGE_VIEW, va("%s image view", glt->name));
 
 	// Allocate and update descriptor for this texture
+
 	glt->descriptor_set = R_AllocateDescriptorSet(&vulkan_globals.single_texture_set_layout);
 	GL_SetObjectName((uint64_t)glt->descriptor_set, VK_OBJECT_TYPE_DESCRIPTOR_SET, va("%s desc set", glt->name));
 

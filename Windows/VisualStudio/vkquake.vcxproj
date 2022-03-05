@@ -317,6 +317,7 @@ copy "$(SolutionDir)\..\SDL2\lib64\*.dll" "$(TargetDir)"</Command>
     <ClCompile Include="..\..\Shaders\Compiled\gen_ray.c" />
     <ClCompile Include="..\..\Shaders\Compiled\hit_ray.c" />
     <ClCompile Include="..\..\Shaders\Compiled\miss_ray.c" />
+    <ClCompile Include="..\..\Shaders\Compiled\shadow_miss_ray.c" />
     <ClCompile Include="..\..\Shaders\Compiled\postprocess_frag.c" />
     <ClCompile Include="..\..\Shaders\Compiled\postprocess_vert.c" />
     <ClCompile Include="..\..\Shaders\Compiled\screen_effects_10bit_comp.c" />

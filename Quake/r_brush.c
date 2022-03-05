@@ -24,6 +24,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // r_brush.c: brush model rendering. renamed from r_surf.c
 
 #include "quakedef.h"
+#include "gl_heap.h"
 
 extern cvar_t gl_fullbrights, r_drawflat; //johnfitz
 
@@ -38,7 +39,7 @@ int					allocated[LMBLOCK_WIDTH];
 
 unsigned	blocklights[LMBLOCK_WIDTH*LMBLOCK_HEIGHT*3 + 1]; //johnfitz -- was 18*18, added lit support (*3) and loosened surface extents maximum (LMBLOCK_WIDTH*LMBLOCK_HEIGHT)
 
-static VkDeviceMemory	bmodel_memory;
+VkDeviceMemory			bmodel_memory;
 VkBuffer				bmodel_vertex_buffer;
 
 extern cvar_t r_showtris;
@@ -145,19 +146,99 @@ void DrawGLPoly (glpoly_t *p, float color[3], float alpha)
 
 /*
 =================
+RT_DrawBrushModel
+=================
+*/
+void RT_DrawBrushModel(entity_t* e)
+{
+	int			i, k;
+	msurface_t* psurf;
+	float		dot;
+	mplane_t* pplane;
+	qmodel_t* clmodel;
+
+	if (R_CullModelForEntity(e))
+		return;
+
+	currententity = e;
+	clmodel = e->model;
+
+	VectorSubtract(r_refdef.vieworg, e->origin, modelorg);
+	if (e->angles[0] || e->angles[1] || e->angles[2])
+	{
+		vec3_t	temp;
+		vec3_t	forward, right, up;
+
+		VectorCopy(modelorg, temp);
+		AngleVectors(e->angles, forward, right, up);
+		modelorg[0] = DotProduct(temp, forward);
+		modelorg[1] = -DotProduct(temp, right);
+		modelorg[2] = DotProduct(temp, up);
+	}
+
+	psurf = &clmodel->surfaces[clmodel->firstmodelsurface];
+
+	// calculate dynamic lighting for bmodel if it's not an
+	// instanced model
+	if (clmodel->firstmodelsurface != 0)
+	{
+		for (k = 0; k < MAX_DLIGHTS; k++)
+		{
+			if ((cl_dlights[k].die < cl.time) ||
+				(!cl_dlights[k].radius))
+				continue;
+
+			R_MarkLights(&cl_dlights[k], k,
+				clmodel->nodes + clmodel->hulls[0].firstclipnode);
+		}
+	}
+
+	e->angles[0] = -e->angles[0];	// stupid quake bug
+	float model_matrix[16];
+	IdentityMatrix(model_matrix);
+	R_RotateForEntity(model_matrix, e->origin, e->angles);
+	e->angles[0] = -e->angles[0];	// stupid quake bug
+
+	float mvp[16];
+	memcpy(mvp, vulkan_globals.view_projection_matrix, 16 * sizeof(float));
+	MatrixMultiply(mvp, model_matrix);
+
+	R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), mvp);
+	R_ClearTextureChains(clmodel, chain_model);
+	for (i = 0; i < clmodel->nummodelsurfaces; i++, psurf++)
+	{
+		pplane = psurf->plane;
+		dot = DotProduct(modelorg, pplane->normal) - pplane->dist;
+		if (((psurf->flags & SURF_PLANEBACK) && (dot < -BACKFACE_EPSILON)) ||
+			(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
+		{
+			R_ChainSurface(psurf, chain_model);
+			R_RenderDynamicLightmaps(psurf);
+			rs_brushpolys++;
+		}
+	}
+
+	R_DrawTextureChains(clmodel, e, chain_model);
+	R_DrawTextureChains_Water(clmodel, e, chain_model);
+	R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), vulkan_globals.view_projection_matrix);
+}
+
+/*
+=================
 R_DrawBrushModel
 =================
 */
 void R_DrawBrushModel (entity_t *e)
 {
-	int			i, k;
+	int			i;
+	i;
 	msurface_t	*psurf;
 	float		dot;
 	mplane_t	*pplane;
 	qmodel_t	*clmodel;
 
-	if (R_CullModelForEntity(e))
-		return;
+	/*if (R_CullModelForEntity(e))
+		return;*/
 
 	currententity = e;
 	clmodel = e->model;
@@ -179,7 +260,7 @@ void R_DrawBrushModel (entity_t *e)
 
 // calculate dynamic lighting for bmodel if it's not an
 // instanced model
-	if (clmodel->firstmodelsurface != 0)
+	/*if (clmodel->firstmodelsurface != 0)
 	{
 		for (k=0 ; k<MAX_DLIGHTS ; k++)
 		{
@@ -190,7 +271,7 @@ void R_DrawBrushModel (entity_t *e)
 			R_MarkLights (&cl_dlights[k], k,
 				clmodel->nodes + clmodel->hulls[0].firstclipnode);
 		}
-	}
+	}*/
 
 	e->angles[0] = -e->angles[0];	// stupid quake bug
 	float model_matrix[16];
@@ -202,7 +283,8 @@ void R_DrawBrushModel (entity_t *e)
 	memcpy(mvp, vulkan_globals.view_projection_matrix, 16 * sizeof(float));
 	MatrixMultiply(mvp, model_matrix);
 
-	R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), mvp);
+	// Legacy raster code
+	//R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), mvp);
 	R_ClearTextureChains (clmodel, chain_model);
 	for (i=0 ; i<clmodel->nummodelsurfaces ; i++, psurf++)
 	{
@@ -212,14 +294,17 @@ void R_DrawBrushModel (entity_t *e)
 			(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
 		{
 			R_ChainSurface (psurf, chain_model);
-			R_RenderDynamicLightmaps(psurf);
+			//R_RenderDynamicLightmaps(psurf);
 			rs_brushpolys++;
 		}
 	}
 
-	R_DrawTextureChains (clmodel, e, chain_model);
-	R_DrawTextureChains_Water (clmodel, e, chain_model);
-	R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), vulkan_globals.view_projection_matrix);
+	//R_DrawTextureChains (clmodel, e, chain_model);
+	//R_DrawTextureChains_Water (clmodel, e, chain_model);
+	//R_PushConstants(VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof(float), vulkan_globals.view_projection_matrix);
+	
+	//R_DrawTextureChains_RTX(clmodel, e, chain_model);
+	RT_LoadBrushModelIndices(clmodel, e, chain_model, model_matrix);
 }
 
 /*
@@ -617,6 +702,212 @@ void GL_DeleteBModelVertexBuffer (void)
 	}
 }
 
+
+void GL_BuildBModelRTVertexAndIndexBuffer (void)
+{
+	unsigned int	numverts, varray_bytes, numindices, iarray_bytes;
+	int		i, j;
+	qmodel_t	*m;
+	uint16_t* iarray;
+	byte	*varray;
+	int remaining_size;
+	int copy_offset;
+
+	// count all verts in all models
+	numverts = 0;
+	numindices = 0;
+	for (j=1 ; j<MAX_MODELS ; j++)
+	{
+		m = cl.model_precache[j];
+		if (!m || m->name[0] == '*' || m->type != mod_brush)
+			continue;
+
+		for (i=0 ; i<m->numsurfaces ; i++)
+		{
+			numverts += m->surfaces[i].numedges;
+			numindices += m->surfaces[i].numedges - 1;
+		}
+	}
+
+	numindices = numindices * 3 + 3;
+
+	// build vertex array
+	varray_bytes = sizeof(rt_vertex_t) * numverts;
+	varray = (byte*) malloc (varray_bytes);
+	//int rt_vertex_count = 10;
+
+	// build index array
+	iarray_bytes = sizeof(uint16_t) * numindices;
+	iarray = (uint16_t*)malloc(iarray_bytes);
+
+	numindices = 0;
+
+	for (j=1 ; j<MAX_MODELS ; j++)
+	{
+		m = cl.model_precache[j];
+		if (!m || m->name[0] == '*' || m->type != mod_brush)
+			continue;
+
+		for (i=0 ; i<m->numsurfaces ; i++)
+		{	
+			int material = 0; // default diffuse material
+			msurface_t *s = &m->surfaces[i];
+			int first_vert = s->vbo_firstvert;
+
+			rt_vertex_t* rt_verts = (rt_vertex_t*)malloc(sizeof(rt_vertex_t) * s->numedges);
+
+			// add texture_index and material number (future use)
+			int tx_imageview_index = -1;
+			int fb_imageview_index = -1;
+
+			if (s->texinfo->texture->gltexture) {
+				glheapnode_t* txheapnode = s->texinfo->texture->gltexture->heap_node;
+
+				while (txheapnode->prev != NULL) {
+					txheapnode = txheapnode->prev;
+					tx_imageview_index++;
+				}
+			}
+
+			if (s->texinfo->texture->fullbright) {
+				glheapnode_t* fbheapnode = s->texinfo->texture->fullbright->heap_node;
+
+				while (fbheapnode->prev != NULL) {
+					fbheapnode = fbheapnode->prev;
+					fb_imageview_index++;
+				}
+			}
+
+			// fullbright textures are considered emissive materials
+			if (fb_imageview_index != -1) {
+				material = 1; // index for emissive
+			}
+
+			// skybox is considered emissive as well
+			if (s->flags & (SURF_DRAWSKY)) {
+				material = 2; // index for skylight
+				//continue;
+			}
+
+			// copy verts data to rt_verts (they are identical) and add texture indices and material index
+			for (int k = 0; k < s->numedges; k++) {
+
+				rt_verts[k].vertex_pos[0] = s->polys->verts[k][0];
+				rt_verts[k].vertex_pos[1] = s->polys->verts[k][1];
+				rt_verts[k].vertex_pos[2] = s->polys->verts[k][2];
+				rt_verts[k].vertex_tx_coords[0] = s->polys->verts[k][3];
+				rt_verts[k].vertex_tx_coords[1] = s->polys->verts[k][4];
+				rt_verts[k].vertex_fb_coords[0] = s->polys->verts[k][5];
+				rt_verts[k].vertex_fb_coords[1] = s->polys->verts[k][6];
+
+				rt_verts[k].tx_index = tx_imageview_index;
+				rt_verts[k].fb_index = fb_imageview_index;
+				rt_verts[k].material_index = material;	// future use
+			}
+
+			memcpy(&varray[sizeof(rt_vertex_t) * first_vert], rt_verts, sizeof(rt_vertex_t) * s->numedges);
+
+			// ignores brushes that have no texture and where lightmaps were not applied
+			if (s->flags & (SURF_NOTEXTURE)) {
+				continue;
+			}
+
+			// ignores submodels, needed submodels will be loaded in as entities
+			if (s->bmodelindex > 0) {
+				continue;
+			}
+
+			for (int k = 0; k < s->numedges; k++) {
+				iarray[numindices + (k * 3 + 0)] = (uint16_t)first_vert;
+				iarray[numindices + (k * 3 + 1)] = (uint16_t)first_vert + k + 1;
+				iarray[numindices + (k * 3 + 2)] = (uint16_t)first_vert + k;
+			}
+
+			numindices += (s->numedges - 1) * 3;
+		}
+	}
+
+	// Allocate vertex buffer
+	BufferResource_t rt_vert_buff_resource;
+	buffer_create(&rt_vert_buff_resource, varray_bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+		| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	GL_SetObjectName((uint64_t)rt_vert_buff_resource.buffer, VK_OBJECT_TYPE_BUFFER, "Brush Vertex Buffer RT");
+	GL_SetObjectName((uint64_t)rt_vert_buff_resource.memory, VK_OBJECT_TYPE_DEVICE_MEMORY, "Brush Vertex Memory RT");
+
+	vulkan_globals.rt_static_vertex_buffer_resource = rt_vert_buff_resource;
+	vulkan_globals.rt_static_vertex_count = numverts;
+	
+	remaining_size = varray_bytes;
+	copy_offset = 0;
+
+	while (remaining_size > 0)
+	{
+		const int size_to_copy = q_min(remaining_size, vulkan_globals.staging_buffer_size);
+		VkBuffer staging_buffer;
+		VkCommandBuffer command_buffer;
+		int staging_offset;
+		unsigned char* staging_memory = R_StagingAllocate(size_to_copy, 1, &command_buffer, &staging_buffer, &staging_offset);
+
+		memcpy(staging_memory, (byte*)varray + copy_offset, size_to_copy);
+
+		VkBufferCopy region;
+		region.srcOffset = staging_offset;
+		region.dstOffset = copy_offset;
+		region.size = size_to_copy;
+		vkCmdCopyBuffer(command_buffer, staging_buffer, vulkan_globals.rt_static_vertex_buffer_resource.buffer, 1, &region);
+
+		copy_offset += size_to_copy;
+		remaining_size -= size_to_copy;
+	}
+
+	free(varray);
+
+	// num of indices may have changed while traversing
+	iarray_bytes = sizeof(uint16_t) * numindices;
+
+	// Allocate index buffer
+	BufferResource_t rt_ind_buff_resource;
+	buffer_create(&rt_ind_buff_resource, iarray_bytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+		| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	
+	vulkan_globals.rt_static_index_buffer = rt_ind_buff_resource.buffer;
+	GL_SetObjectName((uint64_t)vulkan_globals.rt_static_index_buffer, VK_OBJECT_TYPE_BUFFER, "Brush Index Buffer RT");
+	
+	vulkan_globals.rt_static_index_memory = rt_ind_buff_resource.memory;
+	GL_SetObjectName((uint64_t)vulkan_globals.rt_static_index_memory, VK_OBJECT_TYPE_DEVICE_MEMORY, "Brush Index Memory RT");
+	
+	vulkan_globals.rt_static_index_count = numindices;
+
+	remaining_size = iarray_bytes;
+	copy_offset = 0;
+
+	while (remaining_size > 0)
+	{
+		const int size_to_copy = q_min(remaining_size, vulkan_globals.staging_buffer_size);
+		VkBuffer staging_buffer;
+		VkCommandBuffer command_buffer;
+		int staging_offset;
+		unsigned char* staging_memory = R_StagingAllocate(size_to_copy, 1, &command_buffer, &staging_buffer, &staging_offset);
+
+		memcpy(staging_memory, (byte*)iarray + copy_offset, size_to_copy);
+
+		VkBufferCopy region;
+		region.srcOffset = staging_offset;
+		region.dstOffset = copy_offset;
+		region.size = size_to_copy;
+		vkCmdCopyBuffer(command_buffer, staging_buffer, vulkan_globals.rt_static_index_buffer, 1, &region);
+
+		copy_offset += size_to_copy;
+		remaining_size -= size_to_copy;
+	}
+
+	free(iarray);
+}
+
 /*
 ==================
 GL_BuildBModelVertexBuffer
@@ -667,6 +958,8 @@ void GL_BuildBModelVertexBuffer (void)
 			varray_index += s->numedges;
 		}
 	}
+
+	
 
 	// Allocate & upload to GPU
 	VkResult err;

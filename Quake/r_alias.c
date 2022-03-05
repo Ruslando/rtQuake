@@ -24,6 +24,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //r_alias.c -- alias model rendering
 
 #include "quakedef.h"
+#include "gl_heap.h"
+#include "time.h"
 
 extern cvar_t r_drawflat, gl_fullbrights, r_lerpmodels, r_lerpmove, r_showtris; //johnfitz
 extern cvar_t scr_fov, cl_gun_fovscale;
@@ -80,6 +82,11 @@ typedef struct {
 	unsigned int st_offset;
 } raygen_aliasubo_t;
 
+typedef union char_to_float_convert_s {
+	unsigned char byte[4];
+	float real;
+} char_to_float_convert_t;
+
 /*
 =============
 GLARB_GetXYZOffset
@@ -94,197 +101,6 @@ static VkDeviceSize GLARB_GetXYZOffset (aliashdr_t *hdr, int pose)
 	return currententity->model->vboxyzofs + (hdr->numverts_vbo * pose * sizeof (meshxyz_t)) + xyzoffs;
 }
 
-
-static void R_Create_Alias_BLAS(aliashdr_t* paliashdr, float transform_mat[16], VkBuffer vertex_buffer, VkDeviceSize vertex_offset, VkBuffer index_buffer) {
-
-	VkBufferDeviceAddressInfo vertexBufferDeviceAddressInfo;
-	memset(&vertexBufferDeviceAddressInfo, 0, sizeof(VkBufferDeviceAddressInfo));
-	vertexBufferDeviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	vertexBufferDeviceAddressInfo.buffer = vertex_buffer;
-
-	VkDeviceAddress vertexBufferAddress = vkGetBufferDeviceAddress(vulkan_globals.device, &vertexBufferDeviceAddressInfo);
-
-	VkDeviceOrHostAddressConstKHR vertexDeviceOrHostAddressConst;
-	memset(&vertexDeviceOrHostAddressConst, 0, sizeof(VkDeviceOrHostAddressConstKHR));
-	vertexDeviceOrHostAddressConst.deviceAddress = vertexBufferAddress + vertex_offset;
-
-
-	VkBufferDeviceAddressInfo indexBufferDeviceAddressInfo;
-	memset(&indexBufferDeviceAddressInfo, 0, sizeof(VkBufferDeviceAddressInfo));
-	indexBufferDeviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	indexBufferDeviceAddressInfo.buffer = index_buffer;
-
-	VkDeviceAddress indexBufferAddress = vkGetBufferDeviceAddress(vulkan_globals.device, &indexBufferDeviceAddressInfo);
-
-	VkDeviceOrHostAddressConstKHR indexDeviceOrHostAddressConst;
-	memset(&indexDeviceOrHostAddressConst, 0, sizeof(VkDeviceOrHostAddressConstKHR));
-	indexDeviceOrHostAddressConst.deviceAddress = indexBufferAddress;
-
-	// TODO: See how it affects the transform of the geometry
-
-	VkTransformMatrixKHR transform;
-	memset(&transform, 0, sizeof(VkTransformMatrixKHR));
-	transform.matrix[0][0] = transform_mat[0];
-	transform.matrix[0][1] = transform_mat[4];
-	transform.matrix[0][2] = transform_mat[8];
-	transform.matrix[0][3] = transform_mat[12];
-
-	transform.matrix[1][0] = transform_mat[1];
-	transform.matrix[1][1] = transform_mat[5];
-	transform.matrix[1][2] = transform_mat[9];
-	transform.matrix[1][3] = transform_mat[13];
-
-	transform.matrix[2][0] = transform_mat[2];
-	transform.matrix[2][1] = transform_mat[6];
-	transform.matrix[2][2] = transform_mat[10];
-	transform.matrix[2][3] = transform_mat[14];
-
-	BufferResource_t transform_buffer_instance;
-	buffer_create(&transform_buffer_instance, sizeof(VkTransformMatrixKHR), VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-		VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT);
-
-	void* mem_transf = buffer_map(&transform_buffer_instance);
-	memcpy(mem_transf, &transform, transform_buffer_instance.size);
-	buffer_unmap(&transform_buffer_instance);
-	mem_transf = NULL;
-
-	VkDeviceOrHostAddressConstKHR transform_device_or_host_address_const;
-	memset(&transform_device_or_host_address_const, 0, sizeof(VkDeviceOrHostAddressConstKHR));
-	transform_device_or_host_address_const.deviceAddress = transform_buffer_instance.address;
-
-	uint32_t max_primitive_count = paliashdr->numtris;
-	uint32_t numverts = paliashdr->numverts_vbo;
-	uint32_t numindices = paliashdr->numindexes;
-
-	VkAccelerationStructureGeometryTrianglesDataKHR geometry_triangles_data;
-	memset(&geometry_triangles_data, 0, sizeof(VkAccelerationStructureGeometryTrianglesDataKHR));
-	geometry_triangles_data.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-	//geometry_triangles_data.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-	geometry_triangles_data.vertexFormat = VK_FORMAT_R8G8B8A8_UNORM;
-	geometry_triangles_data.vertexData = vertexDeviceOrHostAddressConst;
-	geometry_triangles_data.vertexStride = sizeof(meshxyz_t);
-	geometry_triangles_data.maxVertex = numverts - 1;
-	geometry_triangles_data.indexType = VK_INDEX_TYPE_UINT16;
-	geometry_triangles_data.indexData = indexDeviceOrHostAddressConst;
-	geometry_triangles_data.transformData = transform_device_or_host_address_const;
-
-	// setting up the geometry
-	VkAccelerationStructureGeometryKHR geometry;
-	memset(&geometry, 0, sizeof(VkAccelerationStructureGeometryKHR));
-	geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-	geometry.geometry.triangles = geometry_triangles_data;
-	geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-	geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
-
-	VkAccelerationStructureBuildGeometryInfoKHR buildInfo;
-	memset(&buildInfo, 0, sizeof(VkAccelerationStructureBuildGeometryInfoKHR));
-	// Prepare build info now, acceleration is filled later
-	buildInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-	buildInfo.pNext = VK_NULL_HANDLE;
-	buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-	buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-	buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-	buildInfo.srcAccelerationStructure = VK_NULL_HANDLE;
-	buildInfo.dstAccelerationStructure = VK_NULL_HANDLE;
-	buildInfo.geometryCount = 1;
-	buildInfo.pGeometries = &geometry;
-	buildInfo.ppGeometries = VK_NULL_HANDLE;
-
-	VkAccelerationStructureBuildSizesInfoKHR sizeInfo;
-	memset(&sizeInfo, 0, sizeof(VkAccelerationStructureBuildSizesInfoKHR));
-	sizeInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-
-	vulkan_globals.fpGetAccelerationStructureBuildSizesKHR(vulkan_globals.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &buildInfo.geometryCount, &sizeInfo);
-
-	if (!accel_matches(&vulkan_globals.blas.match, false, numverts, numindices)) {
-		destroy_accel_struct(&vulkan_globals.blas);
-
-		VkAccelerationStructureCreateInfoKHR createInfo;
-		memset(&createInfo, 0, sizeof(VkAccelerationStructureCreateInfoKHR));
-		createInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-		createInfo.size = sizeInfo.accelerationStructureSize;
-		createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-
-		// Create buffer for acceleration
-		buffer_create(&vulkan_globals.blas.mem, sizeInfo.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-		createInfo.buffer = vulkan_globals.blas.mem.buffer;
-
-		//creates acceleration structure
-		VkResult err = vulkan_globals.fpCreateAccelerationStructureKHR(vulkan_globals.device, &createInfo, NULL, &vulkan_globals.blas.accel);
-		if (err != VK_SUCCESS)
-			Sys_Error("vkCreateAccelerationStructure failed");
-	};
-
-	// Scratch buffer
-	BufferResource_t scratch_buffer;
-	buffer_create(&scratch_buffer, sizeInfo.buildScratchSize,
-		VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-	VkDeviceOrHostAddressKHR scratchDeviceOrHostAddress;
-	memset(&scratchDeviceOrHostAddress, 0, sizeof(VkDeviceOrHostAddressKHR));
-	scratchDeviceOrHostAddress.deviceAddress = scratch_buffer.address;
-
-	buildInfo.scratchData = scratchDeviceOrHostAddress;
-
-	vulkan_globals.blas.match.fast_build = 0;
-	vulkan_globals.blas.match.vertex_count = numverts;
-	vulkan_globals.blas.match.index_count = numindices;
-	vulkan_globals.blas.match.aabb_count = 0;
-	vulkan_globals.blas.match.instance_count = 1;
-
-	// set where the build lands
-	buildInfo.dstAccelerationStructure = vulkan_globals.blas.accel;
-
-	// build buildRange
-	VkAccelerationStructureBuildRangeInfoKHR* build_range =
-		&(VkAccelerationStructureBuildRangeInfoKHR) {
-		.primitiveCount = max_primitive_count,
-		.primitiveOffset = 0,
-		.firstVertex = 0,
-		.transformOffset = 0
-	};
-	const VkAccelerationStructureBuildRangeInfoKHR** build_range_infos = &build_range;
-
-	vulkan_globals.fpCmdBuildAccelerationStructuresKHR(vulkan_globals.command_buffer, 1, &buildInfo, build_range_infos);
-
-	//buffer_destroy(&scratch_buffer);
-}
-
-static void GL_CreateAliasBLAS(aliashdr_t* paliashdr, lerpdata_t lerpdata, gltexture_t* tx, gltexture_t* fb, float model_matrix[16], float entity_alpha, qboolean alphatest)
-{
-	float	blend;
-
-	if (lerpdata.pose1 != lerpdata.pose2)
-		blend = lerpdata.blend;
-	else // poses the same means either 1. the entity has paused its animation, or 2. r_lerpmodels is disabled
-		blend = 0;
-
-	VkBuffer uniform_buffer;
-	uint32_t uniform_offset;
-	VkDescriptorSet ubo_set;
-	raygen_aliasubo_t* ubo = (raygen_aliasubo_t*)R_UniformAllocate(sizeof(raygen_aliasubo_t), &uniform_buffer, &uniform_offset, &ubo_set);
-
-	unsigned int vbostoffset = (unsigned)currententity->model->vbostofs;
-	memcpy(ubo->model_matrix, model_matrix, 16 * sizeof(float));
-	ubo->st_offset = vbostoffset;
-
-	// pose 2 refers to the current frame. method returns offset of vertex buffer which contains current vertices. this offset is added to the vertex buffer address
-	VkDeviceSize vertex_offset = GLARB_GetXYZOffset(paliashdr, lerpdata.pose2);
-
-	vulkan_globals.raygen_desc_set_items.vertex_buffer = currententity->model->vertex_buffer;
-	vulkan_globals.raygen_desc_set_items.index_buffer = currententity->model->index_buffer;
-	vulkan_globals.raygen_desc_set_items.alias_texture_view = tx->image_view;
-	if (fb != NULL) {
-		vulkan_globals.raygen_desc_set_items.alias_texture_fullbright_view = fb->image_view;
-	}
-	vulkan_globals.raygen_desc_set_items.alias_uniform_buffer = uniform_buffer;
-
-	R_Create_Alias_BLAS(paliashdr, ubo->model_matrix, currententity->model->vertex_buffer, vertex_offset, currententity->model->index_buffer);
-	//R_Create_BLAS();
-	rs_aliaspasses += paliashdr->numtris;
-}
 
 /*
 =============
@@ -579,13 +395,14 @@ void R_SetupAliasLighting (entity_t	*e)
 R_DrawAliasModel -- johnfitz -- almost completely rewritten
 =================
 */
-void R_DrawAliasModel (entity_t *e)
+void R_DrawAliasModel (entity_t *e) //(entity_t *e, qboolean rt)
 {
 	aliashdr_t	*paliashdr;
 	int			i, anim, skinnum;
 	gltexture_t	*tx, *fb;
 	lerpdata_t	lerpdata;
 	qboolean	alphatest = !!(e->model->flags & MF_HOLEY);
+	alphatest;
 
 	//
 	// setup pose/lerp data -- do it first so we don't miss updates due to culling
@@ -597,8 +414,8 @@ void R_DrawAliasModel (entity_t *e)
 	//
 	// cull it
 	//
-	if (R_CullModelForEntity(e))
-		return;
+	/*if (R_CullModelForEntity(e))
+		return;*/
 
 	//
 	// transform it
@@ -641,8 +458,9 @@ void R_DrawAliasModel (entity_t *e)
 	//
 	// set up lighting
 	//
-	rs_aliaspolys += paliashdr->numtris;
-	R_SetupAliasLighting (e);
+	// TODO: Disabled lighting here, renable for raster code
+	//rs_aliaspolys += paliashdr->numtris;
+	//R_SetupAliasLighting (e);
 
 	//
 	// set up textures
@@ -681,11 +499,135 @@ void R_DrawAliasModel (entity_t *e)
 		lightcolor[2] = 1.0f;
 	}
 
-	//
-	// draw it
-	//
-	//GL_DrawAliasFrame (paliashdr, lerpdata, tx, fb, model_matrix, entalpha, alphatest);
-	GL_CreateAliasBLAS(paliashdr, lerpdata, tx, fb, model_matrix, entalpha, alphatest);
+
+	//Collects vertex data used in this frame. Normals are removed and tx and fb coords are casted to float values
+	VkDeviceMemory vertex_heapmemory = currententity->model->vertex_heap->memory;
+	glheapnode_t* vertex_heapnode = currententity->model->vertex_heap_node;
+
+	// animation vertex offset
+	VkDeviceSize animation_vertex_offset = GLARB_GetXYZOffset(paliashdr, lerpdata.pose2);
+	animation_vertex_offset;
+
+	//calculating texture index
+	int tx_imageview_index = -1;
+	int fb_imageview_index = -1;
+
+	if (tx) {
+		glheapnode_t* txheapnode = tx->heap_node;
+
+		while (txheapnode->prev != NULL) {
+			txheapnode = txheapnode->prev;
+			tx_imageview_index++;
+		}
+	}
+
+	if (fb) {
+		glheapnode_t* fbheapnode = fb->heap_node;
+
+		while (fbheapnode->prev != NULL) {
+			fbheapnode = fbheapnode->prev;
+			fb_imageview_index++;
+		}
+	}
+
+	void* vdata;
+	vkMapMemory(vulkan_globals.device, vertex_heapmemory, vertex_heapnode->offset, vertex_heapnode->size, 0, &vdata);
+	vkUnmapMemory(vulkan_globals.device, vertex_heapmemory);
+	unsigned char* vdatacast = (unsigned char*)vdata;
+
+	int current_blas_index = vulkan_globals.rt_current_blas_index;
+	rt_blas_data_t current_blas_data = vulkan_globals.rt_blas_data_pointer[current_blas_index];
+
+	int current_model_count = 0;
+	for (i = 0; i <= vulkan_globals.rt_current_blas_index; i++) {
+		current_model_count += vulkan_globals.rt_blas_data_pointer[i].model_count;
+	}
+
+	int vbostofs = currententity->model->vbostofs;
+	int maxVerts = paliashdr->numverts_vbo;
+
+	char_to_float_convert_t tx_float1;
+	char_to_float_convert_t tx_float2;
+
+	rt_vertex_t rt_vertex;
+
+	VkBuffer dynamic_vertex_buffer;
+	VkDeviceSize dynamic_vertex_buffer_offset;
+	byte* vertex_pointer = R_VertexAllocate(maxVerts * sizeof(rt_vertex_t), &dynamic_vertex_buffer, &dynamic_vertex_buffer_offset);
+	
+	for (i = 0; i < maxVerts; i++) {
+		int offset = i * sizeof(float) * 2;
+
+		int posoffset = animation_vertex_offset + offset;
+		int txoffset = vbostofs + offset;
+
+		// Vertex position
+		float vertex[16];
+		vertex[0] = (float)vdatacast[posoffset + 0] / 255;
+		vertex[1] = (float)vdatacast[posoffset + 1] / 255;
+		vertex[2] = (float)vdatacast[posoffset + 2] / 255;
+		vertex[3] = 1;
+
+		float matrix_copy[16];
+		memcpy(matrix_copy, model_matrix, 16 * sizeof(float));
+		MatrixMultiply(matrix_copy, vertex);
+
+		rt_vertex.vertex_pos[0] = matrix_copy[0];
+		rt_vertex.vertex_pos[1] = matrix_copy[1];
+		rt_vertex.vertex_pos[2] = matrix_copy[2];
+
+		unsigned char* tx1 = tx_float1.byte;
+		*tx1++ = vdatacast[txoffset + 0]; *tx1++ = vdatacast[txoffset + 1];
+		*tx1++ = vdatacast[txoffset + 2]; *tx1++ = vdatacast[txoffset + 3];
+
+		unsigned char* tx2 = tx_float2.byte;
+		*tx2++ = vdatacast[txoffset + 4]; *tx2++ = vdatacast[txoffset + 5];
+		*tx2++ = vdatacast[txoffset + 6]; *tx2++ = vdatacast[txoffset + 7];
+
+		// Vertex texture coordinates (char arrays are converted to float values)
+		rt_vertex.vertex_tx_coords[0] = tx_float1.real;
+		rt_vertex.vertex_tx_coords[1] = tx_float2.real;
+		
+		rt_vertex.vertex_fb_coords[0] = tx_float1.real;
+		rt_vertex.vertex_fb_coords[1] = tx_float2.real;
+		
+		rt_vertex.tx_index = tx_imageview_index;
+		rt_vertex.fb_index = fb_imageview_index;
+		rt_vertex.material_index = -1; // future use
+
+		memcpy(vertex_pointer + i * sizeof(rt_vertex_t), &rt_vertex, sizeof(rt_vertex_t));
+	}
+
+	// Collects index data
+	VkDeviceMemory index_heapmemory = currententity->model->index_heap->memory;
+	glheapnode_t* index_heapnode = currententity->model->index_heap_node;
+
+	void* idata;
+	vkMapMemory(vulkan_globals.device, index_heapmemory, index_heapnode->offset, index_heapnode->size, 0, &idata);
+	vkUnmapMemory(vulkan_globals.device, index_heapmemory);
+	uint16_t* idatacast = (uint16_t*)idata;
+
+	int current_index_count = current_blas_data.index_count;
+	current_index_count;
+	int current_vertex_count = current_blas_data.vertex_count;
+
+	VkDeviceSize indices_allocate_size = paliashdr->numindexes * sizeof(uint32_t);
+
+	VkBuffer dynamic_index_buffer;
+	VkDeviceSize dynamic_index_buffer_offset;
+	byte* indices_pointer = R_IndexAllocate(indices_allocate_size, &dynamic_index_buffer, &dynamic_index_buffer_offset);
+
+	uint32_t* indices = (uint32_t*)malloc(indices_allocate_size);
+	for (int j = 0; j < paliashdr->numindexes; j++) {
+		indices[j] = idatacast[j] + current_vertex_count;
+	}
+
+	memcpy(indices_pointer, indices, indices_allocate_size);
+
+	vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count += paliashdr->numindexes;
+	vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count += paliashdr->numverts_vbo;
+	vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count += 1;
+	
 }
 
 //johnfitz -- values for shadow matrix

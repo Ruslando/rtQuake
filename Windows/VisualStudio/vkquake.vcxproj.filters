@@ -352,6 +352,9 @@
     <ClCompile Include="..\..\Shaders\Compiled\miss_ray.c">
       <Filter>Shaders\Compiled</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\shadow_miss_ray.c">
+      <Filter>Shaders\Compiled</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Quake\r_util.c">
       <Filter>Renderer</Filter>
     </ClCompile>

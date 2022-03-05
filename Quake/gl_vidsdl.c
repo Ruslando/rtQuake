@@ -98,6 +98,8 @@ static cvar_t	vid_refreshrate = { "vid_refreshrate", "60", CVAR_ARCHIVE };
 static cvar_t	vid_vsync = { "vid_vsync", "0", CVAR_ARCHIVE };
 static cvar_t	vid_desktopfullscreen = { "vid_desktopfullscreen", "0", CVAR_ARCHIVE }; // QuakeSpasm
 static cvar_t	vid_borderless = { "vid_borderless", "0", CVAR_ARCHIVE }; // QuakeSpasm
+cvar_t	vid_rt_samples = { "vid_rt_samples", "1", CVAR_ARCHIVE };
+cvar_t	vid_rt_depth = { "vid_rt_depth", "2", CVAR_ARCHIVE };
 cvar_t	vid_filter = { "vid_filter", "0", CVAR_ARCHIVE };
 cvar_t	vid_anisotropic = { "vid_anisotropic", "0", CVAR_ARCHIVE };
 cvar_t vid_fsaa = { "vid_fsaa", "0", CVAR_ARCHIVE };
@@ -123,7 +125,7 @@ static VkCommandBuffer				command_buffers[NUM_COMMAND_BUFFERS];
 static VkFence						command_buffer_fences[NUM_COMMAND_BUFFERS];
 static qboolean						command_buffer_submitted[NUM_COMMAND_BUFFERS];
 static VkFramebuffer				main_framebuffers[NUM_COLOR_BUFFERS];
-static VkFramebuffer				raytrace_framebuffer;
+static VkFramebuffer				raytrace_framebuffer[NUM_COLOR_BUFFERS];
 static VkSemaphore					image_aquired_semaphores[NUM_COMMAND_BUFFERS];
 static VkSemaphore					draw_complete_semaphores[NUM_COMMAND_BUFFERS];
 static VkFramebuffer				ui_framebuffers[MAX_SWAP_CHAIN_IMAGES];
@@ -1338,9 +1340,8 @@ static void GL_CreateRenderPasses()
 
 	// UI Render Pass
 	attachment_descriptions[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	//attachment_descriptions[0].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
-	//attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	//attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	attachment_descriptions[0].samples = VK_SAMPLE_COUNT_1_BIT;
 	attachment_descriptions[0].format = vulkan_globals.color_format;
 	attachment_descriptions[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -1605,7 +1606,8 @@ static void GL_CreateColorBuffer(void)
 			Sys_Error("vkCreateImageView failed");
 
 		GL_SetObjectName((uint64_t)color_buffers_view[i], VK_OBJECT_TYPE_IMAGE_VIEW, va("Color Buffer View %d", i));
-		vulkan_globals.raygen_desc_set_items.color_buffers_view = color_buffers_view[0];
+
+		vulkan_globals.output_image_view[i] = color_buffers_view[i];
 	}
 
 	vulkan_globals.sample_count = VK_SAMPLE_COUNT_1_BIT;
@@ -2046,27 +2048,47 @@ static void GL_CreateFrameBuffers(void)
 	VkResult err;
 
 	const qboolean resolve = (vulkan_globals.sample_count != VK_SAMPLE_COUNT_1_BIT);
+	resolve;
 
 	for (i = 0; i < NUM_COLOR_BUFFERS; ++i)
 	{
+		// VkFramebufferCreateInfo framebuffer_create_info;
+		// memset(&framebuffer_create_info, 0, sizeof(framebuffer_create_info));
+		// framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		// framebuffer_create_info.renderPass = vulkan_globals.main_render_pass;
+		// framebuffer_create_info.attachmentCount = resolve ? 3 : 2;
+		// framebuffer_create_info.width = vid.width;
+		// framebuffer_create_info.height = vid.height;
+		// framebuffer_create_info.layers = 1;
+
+		// VkImageView attachments[3] = { color_buffers_view[i], depth_buffer_view, msaa_color_buffer_view };
+		// framebuffer_create_info.pAttachments = attachments;
+
+		// assert(main_framebuffers[i] == VK_NULL_HANDLE);
+		// err = vkCreateFramebuffer(vulkan_globals.device, &framebuffer_create_info, NULL, &main_framebuffers[i]);
+		// if (err != VK_SUCCESS)
+		// 	Sys_Error("vkCreateFramebuffer failed");
+
+		// GL_SetObjectName((uint64_t)main_framebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, "main");
+
 		VkFramebufferCreateInfo framebuffer_create_info;
 		memset(&framebuffer_create_info, 0, sizeof(framebuffer_create_info));
 		framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-		framebuffer_create_info.renderPass = vulkan_globals.main_render_pass;
-		framebuffer_create_info.attachmentCount = resolve ? 3 : 2;
+		framebuffer_create_info.renderPass = vulkan_globals.raygen_render_pass;
+		framebuffer_create_info.attachmentCount = 1;
 		framebuffer_create_info.width = vid.width;
 		framebuffer_create_info.height = vid.height;
 		framebuffer_create_info.layers = 1;
 
-		VkImageView attachments[3] = { color_buffers_view[i], depth_buffer_view, msaa_color_buffer_view };
-		framebuffer_create_info.pAttachments = attachments;
+		VkImageView rt_attachments[1] = { color_buffers_view[i] };
+		framebuffer_create_info.pAttachments = rt_attachments;
 
-		assert(main_framebuffers[i] == VK_NULL_HANDLE);
-		err = vkCreateFramebuffer(vulkan_globals.device, &framebuffer_create_info, NULL, &main_framebuffers[i]);
+		assert(raytrace_framebuffer[i] == VK_NULL_HANDLE);
+		err = vkCreateFramebuffer(vulkan_globals.device, &framebuffer_create_info, NULL, &raytrace_framebuffer[i]);
 		if (err != VK_SUCCESS)
 			Sys_Error("vkCreateFramebuffer failed");
 
-		GL_SetObjectName((uint64_t)main_framebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, "main");
+		GL_SetObjectName((uint64_t)raytrace_framebuffer[i], VK_OBJECT_TYPE_FRAMEBUFFER, "raytrace framebuffer");
 	}
 
 	for (i = 0; i < num_swap_chain_images; ++i)
@@ -2080,7 +2102,7 @@ static void GL_CreateFrameBuffers(void)
 		framebuffer_create_info.height = vid.height;
 		framebuffer_create_info.layers = 1;
 
-		// TODO: Change first attachment to color_buffers_view or raytrace_buffer_view depending on which render pipeline is currently on
+
 		VkImageView attachments[2] = { color_buffers_view[0], swapchain_images_views[i] };
 		framebuffer_create_info.pAttachments = attachments;
 
@@ -2092,24 +2114,7 @@ static void GL_CreateFrameBuffers(void)
 		GL_SetObjectName((uint64_t)ui_framebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, "ui");
 	}
 
-	VkFramebufferCreateInfo framebuffer_create_info;
-	memset(&framebuffer_create_info, 0, sizeof(framebuffer_create_info));
-	framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-	framebuffer_create_info.renderPass = vulkan_globals.raygen_render_pass;
-	framebuffer_create_info.attachmentCount = 1;
-	framebuffer_create_info.width = vid.width;
-	framebuffer_create_info.height = vid.height;
-	framebuffer_create_info.layers = 1;
-
-	VkImageView attachments[1] = { color_buffers_view[0] };
-	framebuffer_create_info.pAttachments = attachments;
-
-	assert(raytrace_framebuffer == VK_NULL_HANDLE);
-	err = vkCreateFramebuffer(vulkan_globals.device, &framebuffer_create_info, NULL, &raytrace_framebuffer);
-	if (err != VK_SUCCESS)
-		Sys_Error("vkCreateFramebuffer failed");
-
-	GL_SetObjectName((uint64_t)raytrace_framebuffer, VK_OBJECT_TYPE_FRAMEBUFFER, "raytrace framebuffer");
+	
 }
 
 /*
@@ -2155,8 +2160,10 @@ static void GL_DestroyRenderResources(void)
 	R_FreeDescriptorSet(vulkan_globals.screen_warp_desc_set, &vulkan_globals.screen_warp_set_layout);
 	vulkan_globals.screen_warp_desc_set = VK_NULL_HANDLE;
 	
-	R_FreeDescriptorSet(vulkan_globals.raygen_desc_set, &vulkan_globals.raygen_set_layout);
-	vulkan_globals.raygen_desc_set = VK_NULL_HANDLE;
+	for(i = 0; i < FRAMES_IN_FLIGHT; ++i){
+		R_FreeDescriptorSet(vulkan_globals.raygen_desc_set[i], &vulkan_globals.raygen_set_layout);
+		vulkan_globals.raygen_desc_set[i] = VK_NULL_HANDLE;
+	}
 
 	if (msaa_color_buffer)
 	{
@@ -2195,10 +2202,10 @@ static void GL_DestroyRenderResources(void)
 	{
 		vkDestroyFramebuffer(vulkan_globals.device, main_framebuffers[i], NULL);
 		main_framebuffers[i] = VK_NULL_HANDLE;
-	}
 
-	vkDestroyFramebuffer(vulkan_globals.device, raytrace_framebuffer, NULL);
-	raytrace_framebuffer = VK_NULL_HANDLE;
+		vkDestroyFramebuffer(vulkan_globals.device, raytrace_framebuffer[i], NULL);
+		raytrace_framebuffer[i] = VK_NULL_HANDLE;
+	}
 
 	for (i = 0; i < num_swap_chain_images; ++i)
 	{
@@ -2322,14 +2329,17 @@ qboolean GL_BeginRendering(int* x, int* y, int* width, int* height)
 	{
 		vulkan_globals.raygen_clear_values = vulkan_globals.color_clear_value;
 
-		memset(&vulkan_globals.raygen_render_pass_begin_info, 0, sizeof(vulkan_globals.raygen_render_pass_begin_info));
+		memset(&vulkan_globals.raygen_render_pass_begin_infos, 0, sizeof(vulkan_globals.raygen_render_pass_begin_infos));
 		
-		vulkan_globals.raygen_render_pass_begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		vulkan_globals.raygen_render_pass_begin_info.renderArea = render_area;
-		vulkan_globals.raygen_render_pass_begin_info.renderPass = vulkan_globals.raygen_render_pass;
-		vulkan_globals.raygen_render_pass_begin_info.framebuffer = raytrace_framebuffer;
-		vulkan_globals.raygen_render_pass_begin_info.clearValueCount = 1;
-		vulkan_globals.raygen_render_pass_begin_info.pClearValues = &vulkan_globals.raygen_clear_values;
+		for (i = 0; i < 2; ++i)
+		{
+			vulkan_globals.raygen_render_pass_begin_infos[i].sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+			vulkan_globals.raygen_render_pass_begin_infos[i].renderArea = render_area;
+			vulkan_globals.raygen_render_pass_begin_infos[i].renderPass = vulkan_globals.raygen_render_pass;
+			vulkan_globals.raygen_render_pass_begin_infos[i].framebuffer = raytrace_framebuffer[i];
+			vulkan_globals.raygen_render_pass_begin_infos[i].clearValueCount = 1;
+			vulkan_globals.raygen_render_pass_begin_infos[i].pClearValues = &vulkan_globals.raygen_clear_values;
+		}
 	}
 	
 
@@ -2492,6 +2502,7 @@ void GL_EndRendering(qboolean swapchain_acquired)
 
 	command_buffer_submitted[current_command_buffer] = true;
 	current_command_buffer = (current_command_buffer + 1) % NUM_COMMAND_BUFFERS;
+	vulkan_globals.current_command_buffer = current_command_buffer;
 }
 
 /*
@@ -2651,6 +2662,8 @@ void	VID_Init(void)
 					 "vid_borderless" };
 #define num_readvars	( sizeof(read_vars)/sizeof(read_vars[0]) )
 
+	Cvar_RegisterVariable(&vid_rt_samples);
+	Cvar_RegisterVariable(&vid_rt_depth);
 	Cvar_RegisterVariable(&vid_fullscreen); //johnfitz
 	Cvar_RegisterVariable(&vid_width); //johnfitz
 	Cvar_RegisterVariable(&vid_height); //johnfitz
@@ -2939,6 +2952,8 @@ typedef struct {
 	int				vid_filter;
 	int				vid_anisotropic;
 	int				r_scale;
+	int				vid_rt_samples;
+	int				vid_rt_depth;
 } vid_menu_settings_t;
 
 static vid_menu_settings_t menu_settings;
@@ -2970,6 +2985,9 @@ void VID_SyncCvars(void)
 	menu_settings.vid_filter = CLAMP(0, (int)vid_filter.value, 1);
 	menu_settings.vid_anisotropic = CLAMP(0, (int)vid_anisotropic.value, 1);
 	menu_settings.r_scale = CLAMP(1, (int)r_scale.value, 8);
+	menu_settings.vid_rt_samples = CLAMP(1, (int)vid_rt_samples.value, 512);
+	menu_settings.vid_rt_depth = CLAMP(2, (int)vid_rt_depth.value, 8);
+	
 
 	vid_changed = false;
 }
@@ -2981,6 +2999,8 @@ void VID_SyncCvars(void)
 //==========================================================================
 
 enum {
+	VID_OPT_RT_SAMPLE,
+	VID_OPT_RT_DEPTH,
 	VID_OPT_MODE,
 	VID_OPT_BPP,
 	VID_OPT_REFRESHRATE,
@@ -3152,6 +3172,52 @@ static void VID_Menu_RebuildRateList(void)
 
 	if (i == vid_menu_numrates)
 		Cvar_SetValue("vid_refreshrate", (float)vid_menu_rates[0]);
+}
+
+/*
+================
+VID_Menu_ChooseNextRTSamples
+================
+*/
+static void VID_Menu_ChooseNextRTSamples(int dir)
+{
+	int value = menu_settings.vid_rt_samples;
+
+	if (dir > 0)
+	{
+		value *= 2;
+	}
+	else
+	{
+		value /= 2;
+	}
+
+	value = CLAMP(1, value, 512);
+
+	menu_settings.vid_rt_samples = value;
+}
+
+/*
+================
+VID_Menu_ChooseNextRTDepth
+================
+*/
+static void VID_Menu_ChooseNextRTDepth(int dir)
+{
+	int value = menu_settings.vid_rt_depth;
+
+	if (dir > 0)
+	{
+		value += 1;
+	}
+	else
+	{
+		value -= 1;
+	}
+	
+	value = CLAMP(2, value, 8);
+
+	menu_settings.vid_rt_depth = value;
 }
 
 /*
@@ -3438,6 +3504,12 @@ static void VID_MenuKey(int key)
 		S_LocalSound("misc/menu3.wav");
 		switch (video_options_cursor)
 		{
+		case VID_OPT_RT_SAMPLE:
+			VID_Menu_ChooseNextRTSamples(-1);
+			break;
+		case VID_OPT_RT_DEPTH:
+			VID_Menu_ChooseNextRTDepth(-1);
+			break;
 		case VID_OPT_MODE:
 			VID_Menu_ChooseNextMode(1);
 			break;
@@ -3486,6 +3558,12 @@ static void VID_MenuKey(int key)
 		S_LocalSound("misc/menu3.wav");
 		switch (video_options_cursor)
 		{
+		case VID_OPT_RT_SAMPLE:
+			VID_Menu_ChooseNextRTSamples(1);
+			break;
+		case VID_OPT_RT_DEPTH:
+			VID_Menu_ChooseNextRTDepth(1);
+			break;
 		case VID_OPT_MODE:
 			VID_Menu_ChooseNextMode(-1);
 			break;
@@ -3535,6 +3613,12 @@ static void VID_MenuKey(int key)
 		m_entersound = true;
 		switch (video_options_cursor)
 		{
+		case VID_OPT_RT_SAMPLE:
+			VID_Menu_ChooseNextRTSamples(1);
+			break;
+		case VID_OPT_RT_DEPTH:
+			VID_Menu_ChooseNextRTDepth(1);
+			break;
 		case VID_OPT_MODE:
 			VID_Menu_ChooseNextMode(1);
 			break;
@@ -3581,6 +3665,8 @@ static void VID_MenuKey(int key)
 			Cvar_SetValueQuick(&vid_filter, menu_settings.vid_filter);
 			Cvar_SetValueQuick(&vid_anisotropic, menu_settings.vid_anisotropic);
 			Cvar_SetValueQuick(&r_scale, menu_settings.r_scale);
+			Cvar_SetValueQuick(&vid_rt_samples, menu_settings.vid_rt_samples);
+			Cvar_SetValueQuick(&vid_rt_depth, menu_settings.vid_rt_depth);
 			Cbuf_AddText("vid_restart\n");
 			key_dest = key_game;
 			m_state = m_none;
@@ -3630,6 +3716,14 @@ static void VID_MenuDraw(void)
 	{
 		switch (i)
 		{
+		case VID_OPT_RT_SAMPLE:
+			M_Print(16, y, "   Ray sample rate");
+			M_Print(184, y, va("%i", (int)menu_settings.vid_rt_samples));
+			break;
+		case VID_OPT_RT_DEPTH:
+			M_Print(16, y, "    Ray depth rate");
+			M_Print(184, y, va("%i", (int)menu_settings.vid_rt_depth));
+			break;
 		case VID_OPT_MODE:
 			M_Print(16, y, "        Video mode");
 			M_Print(184, y, va("%ix%i", (int)vid_width.value, (int)vid_height.value));

@@ -95,6 +95,7 @@ void TexMgr_FreeTexture (gltexture_t *kill);
 void TexMgr_FreeTextures (unsigned int flags, unsigned int mask);
 void TexMgr_FreeTexturesForOwner (qmodel_t *owner);
 void TexMgr_NewGame (void);
+void TexMgr_LoadActiveTextures(void);
 void TexMgr_Init (void);
 void TexMgr_DeleteTextureObjects (void);
 void TexMgr_CollectGarbage (void);

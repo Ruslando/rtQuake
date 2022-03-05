@@ -24,11 +24,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // r_world.c: world model rendering
 
 #include "quakedef.h"
+#include "gl_heap.h"
 
 extern cvar_t gl_fullbrights, r_drawflat, r_oldskyleaf, r_showtris, r_simd, gl_zfix; //johnfitz
 
 byte *SV_FatPVS (vec3_t org, qmodel_t *worldmodel);
 
+extern VkDeviceMemory bmodel_memory;
 extern VkBuffer bmodel_vertex_buffer;
 
 //==============================================================================
@@ -349,7 +351,7 @@ Writes out the triangle indices needed to draw s as a triangle list.
 The number of indices it will write is given by R_NumTriangleIndicesForSurf.
 ================
 */
-static void R_TriangleAndTextureIndicesForSurf(msurface_t* s, int* indices, int num_vbo_indices)
+static void R_TriangleAndTextureIndicesForSurf(msurface_t* s, uint32_t* indices, int num_vbo_indices)
 {
 	int i;
 	for (i = 2; i < s->numedges; i++)
@@ -558,163 +560,35 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 	}
 }
 
-void R_Create_Brush_BLAS(VkBuffer vertex_buffer, uint32_t num_vertices, uint32_t num_triangles, uint32_t stride, VkBuffer index_buffer, uint32_t num_indices) {
-	VkBufferDeviceAddressInfo vertexBufferDeviceAddressInfo;
-	memset(&vertexBufferDeviceAddressInfo, 0, sizeof(VkBufferDeviceAddressInfo));
-	vertexBufferDeviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	vertexBufferDeviceAddressInfo.buffer = vertex_buffer;
-
-	VkDeviceAddress vertexBufferAddress = vkGetBufferDeviceAddress(vulkan_globals.device, &vertexBufferDeviceAddressInfo);
-
-	VkDeviceOrHostAddressConstKHR vertexDeviceOrHostAddressConst;
-	memset(&vertexDeviceOrHostAddressConst, 0, sizeof(VkDeviceOrHostAddressConstKHR));
-	vertexDeviceOrHostAddressConst.deviceAddress = vertexBufferAddress;
-
-
-	VkBufferDeviceAddressInfo indexBufferDeviceAddressInfo;
-	memset(&indexBufferDeviceAddressInfo, 0, sizeof(VkBufferDeviceAddressInfo));
-	indexBufferDeviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	indexBufferDeviceAddressInfo.buffer = index_buffer;
-
-	VkDeviceAddress indexBufferAddress = vkGetBufferDeviceAddress(vulkan_globals.device, &indexBufferDeviceAddressInfo);
-
-	VkDeviceOrHostAddressConstKHR indexDeviceOrHostAddressConst;
-	memset(&indexDeviceOrHostAddressConst, 0, sizeof(VkDeviceOrHostAddressConstKHR));
-	indexDeviceOrHostAddressConst.deviceAddress = indexBufferAddress;
-
-	VkDeviceOrHostAddressConstKHR transform_device_or_host_address_const;
-	memset(&transform_device_or_host_address_const, 0, sizeof(VkDeviceOrHostAddressConstKHR));
-
-	VkAccelerationStructureGeometryTrianglesDataKHR geometry_triangles_data;
-	memset(&geometry_triangles_data, 0, sizeof(VkAccelerationStructureGeometryTrianglesDataKHR));
-	geometry_triangles_data.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-	geometry_triangles_data.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-	geometry_triangles_data.vertexData = vertexDeviceOrHostAddressConst;
-	geometry_triangles_data.vertexStride = stride;
-	geometry_triangles_data.maxVertex = num_vertices - 1;
-	geometry_triangles_data.indexType = VK_INDEX_TYPE_UINT32;
-	geometry_triangles_data.indexData = indexDeviceOrHostAddressConst;
-	geometry_triangles_data.transformData = transform_device_or_host_address_const;
-
-	// setting up the geometry
-	VkAccelerationStructureGeometryKHR geometry;
-	memset(&geometry, 0, sizeof(VkAccelerationStructureGeometryKHR));
-	geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-	geometry.geometry.triangles = geometry_triangles_data;
-	geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-	geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
-
-	VkAccelerationStructureBuildGeometryInfoKHR buildInfo;
-	memset(&buildInfo, 0, sizeof(VkAccelerationStructureBuildGeometryInfoKHR));
-	// Prepare build info now, acceleration is filled later
-	buildInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-	buildInfo.pNext = VK_NULL_HANDLE;
-	buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-	buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
-	buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-	buildInfo.srcAccelerationStructure = VK_NULL_HANDLE;
-	buildInfo.dstAccelerationStructure = VK_NULL_HANDLE;
-	buildInfo.geometryCount = 1;
-	buildInfo.pGeometries = &geometry;
-	buildInfo.ppGeometries = VK_NULL_HANDLE;
-
-	VkAccelerationStructureBuildSizesInfoKHR sizeInfo;
-	memset(&sizeInfo, 0, sizeof(VkAccelerationStructureBuildSizesInfoKHR));
-	sizeInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-
-	vulkan_globals.fpGetAccelerationStructureBuildSizesKHR(vulkan_globals.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &num_triangles, &sizeInfo);
-
-	if (!accel_matches(&vulkan_globals.blas.match, false, num_vertices, num_indices)) {
-		destroy_accel_struct(&vulkan_globals.blas);
-
-		VkAccelerationStructureCreateInfoKHR createInfo;
-		memset(&createInfo, 0, sizeof(VkAccelerationStructureCreateInfoKHR));
-		createInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-		createInfo.size = sizeInfo.accelerationStructureSize;
-		createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-
-		// Create buffer for acceleration
-		buffer_create(&vulkan_globals.blas.mem, sizeInfo.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-		createInfo.buffer = vulkan_globals.blas.mem.buffer;
-
-		//creates acceleration structure
-		VkResult err = vulkan_globals.fpCreateAccelerationStructureKHR(vulkan_globals.device, &createInfo, NULL, &vulkan_globals.blas.accel);
-		if (err != VK_SUCCESS)
-			Sys_Error("vkCreateAccelerationStructure failed");
-	};
-
-	// Scratch buffer
-	BufferResource_t scratch_buffer;
-	buffer_create(&scratch_buffer, sizeInfo.buildScratchSize,
-		VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-	VkDeviceOrHostAddressKHR scratchDeviceOrHostAddress;
-	memset(&scratchDeviceOrHostAddress, 0, sizeof(VkDeviceOrHostAddressKHR));
-	scratchDeviceOrHostAddress.deviceAddress = scratch_buffer.address;
-
-	buildInfo.scratchData = scratchDeviceOrHostAddress;
-
-	vulkan_globals.blas.match.fast_build = 0;
-	vulkan_globals.blas.match.vertex_count = num_vertices;
-	vulkan_globals.blas.match.index_count = num_indices;
-	vulkan_globals.blas.match.aabb_count = 0;
-	vulkan_globals.blas.match.instance_count = 1;
-
-	// set where the build lands
-	buildInfo.dstAccelerationStructure = vulkan_globals.blas.accel;
-
-	// build buildRange
-	VkAccelerationStructureBuildRangeInfoKHR* build_range =
-		&(VkAccelerationStructureBuildRangeInfoKHR) {
-		.primitiveCount = num_triangles,
-			.primitiveOffset = 0,
-			.firstVertex = 0,
-			.transformOffset = 0
-	};
-	const VkAccelerationStructureBuildRangeInfoKHR** build_range_infos = &build_range;
-
-	vulkan_globals.fpCmdBuildAccelerationStructuresKHR(vulkan_globals.command_buffer, 1, &buildInfo, build_range_infos);
-}
-
 /*
 ================
-R_DrawTextureChains_Multitexture_RTX
+RT_LoadBrushModelIndices
 ================
 */
-void R_DrawTextureChains_Multitexture_RTX(qmodel_t* model, entity_t* ent, texchain_t chain, const float alpha)
+void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, float mvp[16])
 {
 	int			i;
 	msurface_t* s;
 	texture_t* t;
 	qboolean	bound;
 	qboolean	fullbright_enabled = false;
-	qboolean	alpha_test = false;
-	//qboolean	alpha_blend = alpha < 1.0f;
-	//qboolean	use_zbias = (gl_zfix.value && model != cl.worldmodel);
 	gltexture_t* fullbright = NULL;
 
-	size_t textures_pointer_size_count = 1;
-	if (model->numvertexes != 7757) {
-		textures_pointer_size_count *= 1;
-	}
+	// sets current overall index_count
+	int current_blas_index = vulkan_globals.rt_current_blas_index;
 
-	model_material_t* textures = (model_material_t*) malloc(sizeof(model_material_t) * textures_pointer_size_count);
+	int index_count = 0;
+	int index_offset = vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count;
 
-	size_t texture_indices_size = 8192 * sizeof(int); // initial dynamic size in bytes times size of int (4 bytes)
+	uint32_t* index_data_pointer = (uint32_t*)malloc(16000 * sizeof(uint32_t));
 	
-	int* indices = (int*)malloc(texture_indices_size);
-	int* texture_indices = (int*)malloc(texture_indices_size);
+	// copy brush vertices from buffer;
+		// Make buffer mappable or somehow gather data from data
+	rt_vertex_t* vertex_data = (rt_vertex_t*)buffer_map(&vulkan_globals.rt_static_vertex_buffer_resource);
+	buffer_unmap(&vulkan_globals.rt_static_vertex_buffer_resource);
 
-
-	
-	int current_texture_count = 0;
-	int num_vbo_indices_old = 0;
-	//for (i = 0; i < model->numtextures; ++i)
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < model->numtextures; ++i)
 	{
-
 		t = model->textures[i];
 
 		if (!t || !t->texturechains[chain] || t->texturechains[chain]->flags & (SURF_DRAWTILED | SURF_NOTEXTURE))
@@ -729,30 +603,28 @@ void R_DrawTextureChains_Multitexture_RTX(qmodel_t* model, entity_t* ent, texcha
 
 		//R_ClearBatch();
 
+		/*int tx_imageview_index = -1;
+		int fb_imageview_index = -1;*/
+
 		bound = false;
 		for (s = t->texturechains[chain]; s; s = s->texturechain)
 		{
+
 			if (!bound) //only bind once we are sure we need this texture
 			{
-				// reallocate memory if indices count exceeds initial size of 512
-				if (current_texture_count + 1 > textures_pointer_size_count) {
-					if (textures != NULL) {
-						textures_pointer_size_count *= 2;
-						model_material_t* tmp_textures = (model_material_t*)realloc(textures, textures_pointer_size_count * sizeof(model_material_t));
-
-						if (tmp_textures != NULL) {
-							textures = tmp_textures;
-						}
-					}
-				}
-
-				texture_t* texture = R_TextureAnimation(t, ent != NULL ? ent->frame : 0);
+				// TODO: Reintroduce TextureAnimation
+				/*texture_t* texture = R_TextureAnimation(t, ent != NULL ? ent->frame : 0);
 				gltexture_t* gl_texture = texture->gltexture;
-				if (!r_lightmap_cheatsafe)
-					textures[current_texture_count].tx_imageview = gl_texture->image_view;
-					current_texture_count++;
+				if (!r_lightmap_cheatsafe) {
+					glheapnode_t* txheapnode = gl_texture->heap_node;
 
-				alpha_test = (t->texturechains[chain]->flags & SURF_DRAWFENCE) != 0;
+					while (txheapnode->prev != NULL) {
+						txheapnode = txheapnode->prev;
+						tx_imageview_index++;
+					}
+				}*/
+					
+				//alpha_test = (t->texturechains[chain]->flags & SURF_DRAWFENCE) != 0;
 				bound = true;
 			}
 
@@ -762,65 +634,67 @@ void R_DrawTextureChains_Multitexture_RTX(qmodel_t* model, entity_t* ent, texcha
 
 				num_surf_indices = R_NumTriangleIndicesForSurf(s);
 
-				// reallocate memory if indices count exceeds initial size of 512
-				if ((int)num_vbo_indices + num_surf_indices > texture_indices_size / 4) {
-					if (indices != NULL && texture_indices != NULL) {
-						texture_indices_size *= 2;
-						int* tmp_indices = (int*) realloc(indices, texture_indices_size);
-						int* tmp_texture_indices = (int*) realloc(texture_indices, texture_indices_size);
+				R_TriangleAndTextureIndicesForSurf(s, index_data_pointer, index_count);	// cumulative index count of previous models (offset) + current index_count
 
-						if (tmp_indices != NULL && tmp_texture_indices != NULL) {
-							indices = tmp_indices;
-							texture_indices = tmp_texture_indices;
-						}
-					}
+				for (int j = index_count; j < index_count + num_surf_indices; j++) {
+					int index = index_data_pointer[j] - s->vbo_firstvert + index_offset;
+					index_data_pointer[j] = index;
 				}
 
-				//R_TriangleIndicesForSurf(s, &vbo_indices[num_vbo_indices]);
-				R_TriangleAndTextureIndicesForSurf(s, indices, num_vbo_indices);
-				num_vbo_indices += num_surf_indices;
+				index_count += num_surf_indices;
+				vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count += s->numedges;
+				index_offset = vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count;
 			}
+
+			rt_vertex_t* brush_vertex_data = (rt_vertex_t*)malloc(s->numedges * sizeof(rt_vertex_t));
+
+			for (int j = 0; j < s->numedges; j++) {
+				int index = j + s->vbo_firstvert;
+				rt_vertex_t current_vertex = vertex_data[index];
+
+				float vertex[16];
+				vertex[0] = current_vertex.vertex_pos[0];
+				vertex[1] = current_vertex.vertex_pos[1];
+				vertex[2] = current_vertex.vertex_pos[2];
+				vertex[3] = 1;
+
+				float matrix_copy[16];
+				memcpy(matrix_copy, mvp, 16 * sizeof(float));
+				MatrixMultiply(matrix_copy, vertex);
+
+				current_vertex.vertex_pos[0] = matrix_copy[0];
+				current_vertex.vertex_pos[1] = matrix_copy[1];
+				current_vertex.vertex_pos[2] = matrix_copy[2];
+
+				brush_vertex_data[j] = current_vertex;
+			}
+
+			VkBuffer dynamic_vertex_buffer;
+			VkDeviceSize dynamic_vertex_buffer_offset;
+			byte* vertices = R_VertexAllocate(s->numedges * sizeof(rt_vertex_t), &dynamic_vertex_buffer, &dynamic_vertex_buffer_offset);
+			memcpy(vertices, brush_vertex_data, s->numedges * sizeof(rt_vertex_t));
+			
+			free(brush_vertex_data);
 
 			rs_brushpasses++;
 		}
 
-		// may cause errors if for some reason a model has been build without a texture added (bound) to the texture list 
-		for (int j = num_vbo_indices_old; j < (int)num_vbo_indices; j++) {
-			texture_indices[j] = current_texture_count - 1;
+		vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count += 1;
+		if (vulkan_globals.rt_blas_data_pointer[current_blas_index].model_count == 3) {
+			num_vbo_indices = 0;
 		}
-
-		num_vbo_indices_old = (int)num_vbo_indices;
 	}
 
-	// Flush batch
-	VkBuffer index_buffer;
-	VkDeviceSize buffer_offset;
-	byte* indices_data = R_IndexAllocate(texture_indices_size, &index_buffer, &buffer_offset);
-	memcpy(indices_data, indices, texture_indices_size);
-
-	// Vertex Allocate (texture index)
-	// TODO: Change to index, cause its what it is
-	VkBuffer texture_index_buffer;
-	VkDeviceSize texture_index_offset;
-	byte* ubo = R_VertexAllocate(texture_indices_size, &texture_index_buffer, &texture_index_offset);
-	memcpy(ubo, texture_indices, texture_indices_size);
-
-	//TODO: Remove/replace hardcoded stride value
-	R_Create_Brush_BLAS(bmodel_vertex_buffer, model->numvertexes, num_vbo_indices / 3, 28, index_buffer, num_vbo_indices);
-
-	vulkan_globals.raygen_desc_set_items.model_materials = textures;
-	vulkan_globals.raygen_desc_set_items.vertex_buffer = bmodel_vertex_buffer;
-	vulkan_globals.raygen_desc_set_items.index_buffer = index_buffer;
-	vulkan_globals.raygen_desc_set_items.texture_test_buffer = texture_index_buffer;
-	vulkan_globals.raygen_desc_set_items.texture_index_count = current_texture_count;
-
-	//free(textures);
-	free(texture_indices);
-	free(indices);
-
-	//buffer_destroy(&texture_index_resource);
+	vulkan_globals.rt_blas_data_pointer[current_blas_index].index_count += index_count;
 
 	num_vbo_indices = 0;
+
+	VkBuffer dynamic_index_buffer;
+	VkDeviceSize dynamic_index_buffer_offset;
+	byte* indices = R_IndexAllocate(index_count * sizeof(uint32_t), &dynamic_index_buffer, &dynamic_index_buffer_offset);
+	memcpy(indices, index_data_pointer, index_count * sizeof(uint32_t));
+
+	free(index_data_pointer);
 }
 
 /*
@@ -917,9 +791,8 @@ void R_DrawTextureChains (qmodel_t *model, entity_t *ent, texchain_t chain)
 	else
 		entalpha = 1;
 
-	//R_UploadLightmaps ();
-	//R_DrawTextureChains_Multitexture (model, ent, chain, entalpha);
-	R_DrawTextureChains_Multitexture_RTX(model, ent, chain, entalpha);
+	R_UploadLightmaps ();
+	R_DrawTextureChains_Multitexture (model, ent, chain, entalpha);
 }
 
 /*
@@ -935,6 +808,17 @@ void R_DrawWorld (void)
 	R_BeginDebugUtilsLabel ("World");
 	R_DrawTextureChains (cl.worldmodel, NULL, chain_world);
 	R_EndDebugUtilsLabel ();
+}
+
+void RT_LoadDynamicWorldIndices() {
+	if (!r_drawworld_cheatsafe)
+		return;
+	R_BeginDebugUtilsLabel("Dynamic World Indices");
+	// unlike this method says, world indices are dynamic. might change in future
+	float mvp[16];
+	memset(mvp, 1, sizeof(mvp));
+	RT_LoadBrushModelIndices(cl.worldmodel, NULL, chain_world, mvp);
+	R_EndDebugUtilsLabel();
 }
 
 /*

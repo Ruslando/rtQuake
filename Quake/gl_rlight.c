@@ -25,6 +25,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 int	r_dlightframecount;
 
+const int MAX_LIGHT_ENTITIES = 512;
+const int MAX_VISIBLE_LIGHT_ENTITIES = 128;
+
+
 extern cvar_t r_flatlightstyles; //johnfitz
 
 /*
@@ -329,3 +333,120 @@ int R_LightPoint (vec3_t p)
 	RecursiveLightPoint (lightcolor, cl.worldmodel->nodes, p, p, end, &maxdist);
 	return ((lightcolor[0] + lightcolor[1] + lightcolor[2]) * (1.0f / 3.0f));
 }
+
+//rt_light_entity_t light_entities[512];
+//int light_entities_count = 0;
+
+void R_InitWorldLightEntities(void) {
+
+	if (vulkan_globals.rt_light_entities_buffer.buffer == NULL) {
+		buffer_create(&vulkan_globals.rt_light_entities_buffer, MAX_LIGHT_ENTITIES * sizeof(rt_light_entity_shader_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+		buffer_create(&vulkan_globals.rt_light_entities_list_buffer, MAX_VISIBLE_LIGHT_ENTITIES * sizeof(uint16_t), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+		vulkan_globals.rt_light_entities = (rt_light_entity_t*) malloc(MAX_LIGHT_ENTITIES * sizeof(rt_light_entity_t));
+		vulkan_globals.rt_light_entities_count = 0;
+	}
+	else {
+		memset(vulkan_globals.rt_light_entities, 0, MAX_LIGHT_ENTITIES * sizeof(rt_light_entity_t));
+		vulkan_globals.rt_light_entities_count = 0;
+	};
+
+}
+
+void R_AddWorldLightEntity(float x, float y, float z, float radius, int lightStyle, float r, float g, float b) {
+	rt_light_entity_t rt_light_ent;
+	rt_light_ent.origin_radius[0] = x;
+	rt_light_ent.origin_radius[1] = y;
+	rt_light_ent.origin_radius[2] = z;
+	rt_light_ent.origin_radius[3] = radius;
+
+	rt_light_ent.lightStyle = lightStyle;
+
+	rt_light_ent.absmin[0] = x;
+	rt_light_ent.absmin[1] = y;
+	rt_light_ent.absmin[2] = z;
+
+	rt_light_ent.absmax[0] = x;
+	rt_light_ent.absmax[1] = y;
+	rt_light_ent.absmax[2] = z;
+
+	rt_light_ent.light_color[0] = r;
+	rt_light_ent.light_color[1] = g;
+	rt_light_ent.light_color[2] = b;
+
+	rt_light_ent.index = vulkan_globals.rt_light_entities_count;
+
+	vulkan_globals.rt_light_entities[vulkan_globals.rt_light_entities_count] = rt_light_ent;
+	vulkan_globals.rt_light_entities_count++;
+}
+
+void R_CopyLightEntitiesToBuffer(void)
+{
+	rt_light_entity_shader_t* light_shader = (rt_light_entity_shader_t*)malloc(vulkan_globals.rt_light_entities_count * sizeof(rt_light_entity_shader_t));
+	for (int i = 0; i < vulkan_globals.rt_light_entities_count; i++) {
+		light_shader[i].origin_radius[0] = vulkan_globals.rt_light_entities[i].origin_radius[0]; light_shader[i].origin_radius[1] = vulkan_globals.rt_light_entities[i].origin_radius[1];
+		light_shader[i].origin_radius[2] = vulkan_globals.rt_light_entities[i].origin_radius[2]; light_shader[i].origin_radius[3] = vulkan_globals.rt_light_entities[i].origin_radius[3];
+
+		light_shader[i].light_color[0] = vulkan_globals.rt_light_entities[i].light_color[0]; light_shader[i].light_color[1] = vulkan_globals.rt_light_entities[i].light_color[1];
+		light_shader[i].light_color[2] = vulkan_globals.rt_light_entities[i].light_color[2]; light_shader[i].light_color[3] = vulkan_globals.rt_light_entities[i].light_color[3];
+
+		light_shader[i].light_clamp[0] = vulkan_globals.rt_light_entities[i].light_clamp[0]; light_shader[i].light_clamp[1] = vulkan_globals.rt_light_entities[i].light_clamp[1];
+		light_shader[i].light_clamp[2] = vulkan_globals.rt_light_entities[i].light_clamp[2]; light_shader[i].light_clamp[3] = vulkan_globals.rt_light_entities[i].light_clamp[3];
+	}
+
+	if (vulkan_globals.rt_light_entities_count > 0) {
+		void* data = buffer_map(&vulkan_globals.rt_light_entities_buffer);
+		memcpy(data, light_shader, vulkan_globals.rt_light_entities_count * sizeof(rt_light_entity_shader_t));
+		buffer_unmap(&vulkan_globals.rt_light_entities_buffer);
+	}
+}
+
+int lightSort(const void* a, const void* b) {
+	rt_light_entity_t light1 = *((rt_light_entity_t*)a);
+	rt_light_entity_t light2 = *((rt_light_entity_t*)b);
+
+	return light1.distance - light2.distance;
+}
+
+void R_CreateLightEntitiesList(vec3_t viewpos) {
+
+	if (vulkan_globals.rt_light_entities_buffer.buffer != NULL) {
+		int numVisLights = 0;
+
+		for (int i = 0; i < vulkan_globals.rt_light_entities_count; i++) {
+			if (numVisLights >= MAX_VISIBLE_LIGHT_ENTITIES) { break; }
+
+			rt_light_entity_t light_entity = vulkan_globals.rt_light_entities[i];
+
+			vec3_t distance_vec;
+			VectorSubtract(viewpos, light_entity.origin_radius, distance_vec);
+			vec_t distance = VectorLength(distance_vec);
+			vulkan_globals.rt_light_entities[i].distance = distance;
+		}
+	}
+
+	qsort(vulkan_globals.rt_light_entities, vulkan_globals.rt_light_entities_count, sizeof(rt_light_entity_t), lightSort);
+	
+	rt_light_entity_t light_entity1 = vulkan_globals.rt_light_entities[0];
+	rt_light_entity_t light_entity2 = vulkan_globals.rt_light_entities[1];
+	rt_light_entity_t light_entity3 = vulkan_globals.rt_light_entities[2];
+	light_entity1;
+	light_entity2;
+	light_entity3;
+
+	uint16_t* visible_light_entity_indices = (uint16_t*)malloc(MAX_VISIBLE_LIGHT_ENTITIES * sizeof(uint16_t));
+
+	for (int i = 0; i < MAX_VISIBLE_LIGHT_ENTITIES; i++) {
+		visible_light_entity_indices[i] = vulkan_globals.rt_light_entities[i].index;
+	}
+
+	void* entities_list_data = buffer_map(&vulkan_globals.rt_light_entities_list_buffer);
+	memcpy(entities_list_data, visible_light_entity_indices, MAX_VISIBLE_LIGHT_ENTITIES * sizeof(uint16_t));
+	buffer_unmap(&vulkan_globals.rt_light_entities_list_buffer);
+
+	free(visible_light_entity_indices);
+}
+

@@ -55,6 +55,8 @@ extern	int glx, gly, glwidth, glheight;
 
 #define FAN_INDEX_BUFFER_SIZE 126
 
+#define FRAMES_IN_FLIGHT 2
+
 void R_TimeRefresh_f(void);
 void R_ReadPointFile_f(void);
 texture_t* R_TextureAnimation(texture_t* base, int frame);
@@ -143,10 +145,16 @@ extern int r_trace_line_cache_counter;
 
 // Ray generation shader structs
 
-typedef struct raygen_uniform_s {
+typedef struct raygen_uniform_data_s {
+	uint32_t maxDepth;
+	uint32_t maxSamples;
+	uint32_t frame;
+} raygen_uniform_data_t;
+
+typedef struct raygen_push_constants_s {
 	float view_inverse[16];
 	float proj_inverse[16];
-} raygen_uniform_t;
+} raygen_push_constants_t;
 
 typedef struct BufferResource_s {
 	VkBuffer buffer;
@@ -171,27 +179,96 @@ typedef struct accel_struct_s {
 	qboolean present;
 } accel_struct_t;
 
+typedef struct blas_instances_s {
+	accel_struct_t static_blas;
+	accel_struct_t dynamic_blas;
+} blas_instances_t;
+
 typedef struct raygen_uniform_second_s {
 	int* texture_index;
 }raygen_uniform_second_t;
 
 typedef struct model_material_s {
 	VkImageView tx_imageview;
+	VkImageView fb_imageview;
 } model_material_t;
 
-typedef struct raygen_desc_set_items_s {
-	VkImageView color_buffers_view;
-	accel_struct_t tlas;
-	VkBuffer uniform_buffer;
-	VkBuffer alias_uniform_buffer;
-	int texture_index_count;
-	VkBuffer texture_test_buffer;
-	VkBuffer vertex_buffer;
-	VkBuffer index_buffer;
-	model_material_t* model_materials;
-	VkImageView alias_texture_view;
-	VkImageView alias_texture_fullbright_view;
-}raygen_desc_set_items_t;
+typedef struct rt_vertex_s {
+	float vertex_pos[3];
+	float vertex_tx_coords[2];
+	float vertex_fb_coords[2];
+	int	tx_index;
+	int fb_index;
+	int material_index;
+} rt_vertex_t;
+
+typedef struct rt_data_s {
+	/*size_t* blas_instances_count;
+	size_t* blas_instances_size;
+	VkAccelerationStructureInstanceKHR** blas_instances;*/
+
+	size_t* vertex_data_count;
+	size_t* vertex_data_size;
+	rt_vertex_t** vertex_data;
+
+	size_t* index_data_count;
+	size_t* index_data_size;
+	uint32_t** index_data;
+
+	size_t* geometry_count;
+	size_t* geometry_index_data_size;
+	uint32_t** geometry_index_offsets_data;
+
+	//uint32_t** texture_index_data;
+
+	size_t* texture_data_count;
+	size_t* texture_data_size;
+	model_material_t** texture_data;
+} rt_data_t;
+
+typedef struct rt_blas_data_t {
+	int vertex_buffer_offset;
+	int vertex_count;
+	int index_buffer_offset;
+	int index_count;
+	int model_count;
+	int model_info_buffer_offset;
+	VkBuffer transform_data_buffer;
+} rt_blas_data_t;
+
+typedef struct rt_blas_shader_data_s {
+	int vertex_buffer_offset;
+	int index_buffer_offset;
+} rt_blas_shader_data_t;
+
+typedef struct rt_model_shader_data_s {
+	int texture_buffer_offset_index;
+	int texture_buffer_fullbright_offset_index;
+} rt_model_shader_data_t;
+
+typedef struct rt_light_entity_s {
+	vec4_t origin_radius;
+	vec4_t light_color;
+	vec3_t absmin;
+	vec3_t absmax;
+	vec4_t light_clamp;
+
+	int leafnums[16];
+	int lightStyle;
+
+	int num_leafs;
+	float distance;
+
+	int index;
+
+	//qboolean isAreaLight;
+} rt_light_entity_t;
+
+typedef struct rt_light_entity_shader_s {
+	vec4_t origin_radius;
+	vec4_t light_color;
+	vec4_t light_clamp;
+} rt_light_entity_shader_t;
 
 typedef struct vulkan_pipeline_layout_s {
 	VkPipelineLayout		handle;
@@ -224,6 +301,7 @@ typedef struct
 	qboolean							debug_utils;
 	VkQueue								queue;
 	VkCommandBuffer						command_buffer;
+	int									current_command_buffer;
 	vulkan_pipeline_t					current_pipeline;
 	VkClearValue						color_clear_value;
 	VkFormat							swap_chain_format;
@@ -240,11 +318,47 @@ typedef struct
 	qboolean							non_solid_fill;
 	qboolean							screen_effects_sops;
 
-	// Raygen descriptor set items
-	raygen_desc_set_items_t				raygen_desc_set_items;
+	blas_instances_t					blas_instances[FRAMES_IN_FLIGHT];
 
-	// Acceleration structures
-	accel_struct_t						blas;
+	// TLAS
+	accel_struct_t						tlas_instances[FRAMES_IN_FLIGHT];
+
+	// Scratch buffer
+	int									scratch_buffer_pointer;
+	BufferResource_t					acceleration_structure_scratch_buffer;
+	
+	VkImageView							output_image_view[FRAMES_IN_FLIGHT];
+	//VkImageView							output_image_view;
+
+	// RT Buffers
+	int									as_instances_pointer;
+	BufferResource_t					as_instances[FRAMES_IN_FLIGHT];
+
+	// TODO: Replace most buffers with the dynamic buffers made in rtquake
+	BufferResource_t					rt_static_vertex_buffer_resource;
+	int									rt_static_vertex_count;
+
+	VkBuffer							rt_dynamic_vertex_buffer;
+
+	VkDeviceMemory						rt_static_index_memory;
+	VkBuffer							rt_static_index_buffer;
+	int									rt_static_index_count;
+
+	VkBuffer							rt_dynamic_index_buffer;
+
+	BufferResource_t					rt_uniform_buffer;
+
+	int									rt_current_blas_index;
+	rt_blas_data_t*						rt_blas_data_pointer;
+
+	int									rt_light_entities_count;
+	rt_light_entity_t*					rt_light_entities;
+
+	BufferResource_t					rt_light_entities_buffer;
+	BufferResource_t					rt_light_entities_list_buffer;
+
+	VkDescriptorImageInfo*				texture_list;
+	int									texture_list_count;
 
 	// Instance extensions
 	qboolean							get_surface_capabilities_2;
@@ -288,7 +402,7 @@ typedef struct
 	VkRenderPassBeginInfo				main_render_pass_begin_infos[2];
 	VkRenderPass						raygen_render_pass;
 	VkClearValue						raygen_clear_values;
-	VkRenderPassBeginInfo				raygen_render_pass_begin_info;
+	VkRenderPassBeginInfo				raygen_render_pass_begin_infos[2];
 	VkRenderPass						ui_render_pass;
 	VkRenderPassBeginInfo				ui_render_pass_begin_info;
 	VkRenderPass						warp_render_pass;
@@ -338,7 +452,7 @@ typedef struct
 	vulkan_desc_set_layout_t			screen_warp_set_layout;
 	vulkan_desc_set_layout_t			single_texture_cs_write_set_layout;
 	vulkan_desc_set_layout_t			model_vertex_set_layout;
-	VkDescriptorSet						raygen_desc_set;
+	VkDescriptorSet						raygen_desc_set[FRAMES_IN_FLIGHT];
 	vulkan_desc_set_layout_t			raygen_set_layout;
 
 	// Ray generation shader regions
@@ -527,6 +641,8 @@ void R_TranslateNewPlayerSkin(int playernum); //johnfitz -- this handles cases w
 void R_UpdateWarpTextures(void);
 
 void R_DrawWorld(void);
+void RT_LoadStaticWorldGeometry();
+void RT_LoadDynamicWorldIndices();
 void R_DrawAliasModel(entity_t* e);
 void R_DrawBrushModel(entity_t* e);
 void R_DrawSpriteModel(entity_t* e);
@@ -536,10 +652,16 @@ void R_DrawTextureChains_Water(qmodel_t* model, entity_t* ent, texchain_t chain)
 void GL_BuildLightmaps(void);
 void GL_DeleteBModelVertexBuffer(void);
 void GL_BuildBModelVertexBuffer(void);
+void GL_BuildBModelRTVertexAndIndexBuffer(void);
 void GLMesh_LoadVertexBuffers(void);
 void GLMesh_DeleteVertexBuffers(void);
 
 int R_LightPoint(vec3_t p);
+void R_InitWorldLightEntities(void);
+void R_AddWorldLightEntity(float x, float y, float z, float radius, int lightStyle, float r, float g, float b);
+void R_CopyLightEntitiesToBuffer(void);
+int lightSort(const void* a, const void* b);
+void R_CreateLightEntitiesList(vec3_t viewpos);
 
 void GL_SubdivideSurface(msurface_t* fa);
 void R_BuildLightMap(msurface_t* surf, byte* dest, int stride);
@@ -565,8 +687,11 @@ void Sky_LoadSkyBox(const char* name);
 
 void R_ClearTextureChains(qmodel_t* mod, texchain_t chain);
 void R_ChainSurface(msurface_t* surf, texchain_t chain);
+void R_DrawTextureChains_RTX(qmodel_t* model, entity_t* ent, texchain_t chain);
 void R_DrawTextureChains(qmodel_t* model, entity_t* ent, texchain_t chain);
 void R_DrawWorld_Water(void);
+
+void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, float mvp[16]);
 
 float GL_WaterAlphaForSurface(msurface_t* fa);
 
@@ -588,13 +713,15 @@ void* buffer_map(BufferResource_t* buf);
 void buffer_unmap(BufferResource_t* buf);
 
 // path tracing
-VkResult R_UpdateRaygenDescriptorSet();
+void R_InitializeRaygenDescriptorSets();
+VkResult R_UpdateRaygenDescriptorSets();
 
 // Acceleration structures
 // Creates bottom level acceleration strucuture (BLAS)
-void R_Create_BLAS();
-void R_Create_TLAS();
-static void vkpt_destroy_acceleration_structure();
+void RT_Create_BLAS_Instance(accel_struct_t* accel_struct, VkBuffer vertex_buffer,
+	uint32_t vertex_offset, uint32_t num_vertices, uint32_t num_triangles, uint32_t stride,
+	VkBuffer index_buffer, uint32_t num_indices, uint32_t index_offset, VkFormat format, VkIndexType index_type, VkBuffer transform_data);
+void R_Create_TLAS(int num_instances);
 int accel_matches(accel_match_info_t* match, int fast_build,uint32_t vertex_count,uint32_t index_count);
 int accel_matches_top_level(accel_match_info_t* match, int fast_build, uint32_t instance_count);
 void destroy_accel_struct(accel_struct_t* blas);
@@ -614,6 +741,9 @@ static inline void R_BindPipeline(VkPipelineBindPoint bind_point, vulkan_pipelin
 			|| (vulkan_globals.current_pipeline.layout.push_constant_range.size != pipeline.layout.push_constant_range.size))
 			vulkan_globals.vk_cmd_push_constants(vulkan_globals.command_buffer, pipeline.layout.handle, pipeline.layout.push_constant_range.stageFlags, 0, pipeline.layout.push_constant_range.size, zeroes);
 		vulkan_globals.current_pipeline = pipeline;
+	}
+	else {
+		vulkan_globals.vk_cmd_bind_pipeline(vulkan_globals.command_buffer, bind_point, pipeline.handle);
 	}
 }
 
