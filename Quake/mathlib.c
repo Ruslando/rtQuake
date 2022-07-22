@@ -778,3 +778,17 @@ void InverseMatrix(float m[16], float invOut[16])
 	for (int i = 0; i < 16; ++i)
 		invOut[i] = invOut[i] * inv_det;
 }
+
+/*
+=============
+TransposeMatrix
+=============
+*/
+void TransposeMatrix(float m[16], float invOut[16])
+{
+	for (int i = 0; i < 4; i++) {
+		for (int j = 0; j < 4; j++) {
+			invOut[j * 4 + i] = m[i * 4 + j];
+		}
+	}
+}

@@ -290,7 +290,7 @@ static void GL_FrustumMatrix(float matrix[16], float fovx, float fovy)
 R_SetupCameraMatrices_RTX
 =============
 */
-void R_SetupCameraMatrices_RTX()
+void R_SetupCameraMatrices_RTX(raygen_uniform_data_t *frame_data)
 {
 	// Projection matrix
 	GL_FrustumMatrix(vulkan_globals.projection_matrix, DEG2RAD(r_fovx), DEG2RAD(r_fovy));
@@ -312,28 +312,22 @@ void R_SetupCameraMatrices_RTX()
 	MatrixMultiply(vulkan_globals.view_matrix, translation_matrix);
 
 	static raygen_push_constants_t inverse_matrices;
-	static raygen_uniform_data_t frame_data;
-
 
 	InverseMatrix(vulkan_globals.view_matrix, inverse_matrices.view_inverse);
 	InverseMatrix(vulkan_globals.projection_matrix, inverse_matrices.proj_inverse);
 
-	frame_data.maxDepth = vid_rt_depth.value;
-	frame_data.maxSamples = vid_rt_samples.value;
-	frame_data.frame = host_framecount;
+	//frame_data.maxDepth = vid_rt_depth.value; // TODO: Remove from settings
+	//frame_data.maxSamples = vid_rt_samples.value;
+	frame_data->frame = host_framecount;
 
 	R_BindPipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, vulkan_globals.raygen_pipeline);
 
-	if (vulkan_globals.rt_uniform_buffer.buffer == NULL) {
+	if (vulkan_globals.rt_uniform_buffer[vulkan_globals.current_command_buffer].buffer == NULL) {
 		BufferResource_t uniform_buffer_resource;
 		buffer_create(&uniform_buffer_resource, sizeof(raygen_uniform_data_t), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-		vulkan_globals.rt_uniform_buffer = uniform_buffer_resource;
+		vulkan_globals.rt_uniform_buffer[vulkan_globals.current_command_buffer] = uniform_buffer_resource;
 	}
-
-	void* data = buffer_map(&vulkan_globals.rt_uniform_buffer);
-	memcpy(data, &frame_data, sizeof(raygen_uniform_data_t));
-	buffer_unmap(&vulkan_globals.rt_uniform_buffer);
 
 	R_PushConstants(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, 0, sizeof(inverse_matrices), &inverse_matrices);
 
@@ -400,8 +394,8 @@ R_SetupView
 */
 void R_SetupView_RTX(void)
 {
-	R_PushDlights();
-	R_AnimateLight();
+	//R_PushDlights();
+	//R_AnimateLight();
 	r_framecount++;
 
 	// build the transformation matrix for the given view angles
@@ -599,7 +593,7 @@ void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 		switch (currententity->model->type)
 		{
 			case mod_alias:
-				R_DrawAliasModel (currententity); // TODO: Remove comment
+				R_DrawAliasModel (currententity);
 				break;
 			case mod_brush:
 				R_DrawBrushModel (currententity);
@@ -983,7 +977,7 @@ VkResult R_UpdateRaygenDescriptorSets()
 	// uniform buffer (camera matrices)
 	VkDescriptorBufferInfo bufferInfo;
 	memset(&bufferInfo, 0, sizeof(VkDescriptorBufferInfo));
-	bufferInfo.buffer = vulkan_globals.rt_uniform_buffer.buffer;
+	bufferInfo.buffer = vulkan_globals.rt_uniform_buffer[current_frame_index].buffer;
 	bufferInfo.offset = 0;
 	bufferInfo.range = VK_WHOLE_SIZE;
 
@@ -1015,21 +1009,49 @@ VkResult R_UpdateRaygenDescriptorSets()
 	dynamic_index_buffer_info.offset = vulkan_globals.rt_blas_data_pointer[1].index_buffer_offset;
 	dynamic_index_buffer_info.range = vulkan_globals.rt_blas_data_pointer[1].index_count * sizeof(uint32_t);
 
-	// storage buffer (light info)
-	VkDescriptorBufferInfo lightEntitiesBufferInfo;
-	memset(&lightEntitiesBufferInfo, 0, sizeof(VkDescriptorBufferInfo));
-	lightEntitiesBufferInfo.buffer = vulkan_globals.rt_light_entities_buffer.buffer;
-	lightEntitiesBufferInfo.offset = 0;
-	lightEntitiesBufferInfo.range = VK_WHOLE_SIZE;
+	// static primitive buffer info
+	VkDescriptorBufferInfo static_primitive_buffer_info;
+	memset(&static_primitive_buffer_info, 0, sizeof(VkDescriptorBufferInfo));
+	static_primitive_buffer_info.buffer = vulkan_globals.rt_static_primitive_buffer_resource.buffer;
+	static_primitive_buffer_info.offset = 0;
+	static_primitive_buffer_info.range = vulkan_globals.rt_static_primitive_count * sizeof(rt_primitive_t);
 
-	// uniform buffer (light entities index list)
-	VkDescriptorBufferInfo lightEntitiesIndexListBufferInfo;
-	memset(&lightEntitiesIndexListBufferInfo, 0, sizeof(VkDescriptorBufferInfo));
-	lightEntitiesIndexListBufferInfo.buffer = vulkan_globals.rt_light_entities_list_buffer.buffer;
-	lightEntitiesIndexListBufferInfo.offset = 0;
-	lightEntitiesIndexListBufferInfo.range = VK_WHOLE_SIZE;
+	// dynamic primitive buffer info
+	VkDescriptorBufferInfo dynamic_primitive_buffer_info;
+	memset(&dynamic_primitive_buffer_info, 0, sizeof(VkDescriptorBufferInfo));
+	dynamic_primitive_buffer_info.buffer = vulkan_globals.rt_dynamic_primitive_buffer;
+	dynamic_primitive_buffer_info.offset = vulkan_globals.rt_dynamic_primitive_data_offset;
+	dynamic_primitive_buffer_info.range = vulkan_globals.rt_dynamic_primitive_data_count * sizeof(rt_primitive_t);
 
-	VkWriteDescriptorSet raygen_writes[10];
+	// static light mesh buffer;
+	VkDescriptorBufferInfo static_light_mesh_index_buffer_info;
+	memset(&static_light_mesh_index_buffer_info, 0, sizeof(VkDescriptorBufferInfo));
+	static_light_mesh_index_buffer_info.buffer = vulkan_globals.rt_dynamic_index_buffer;
+	static_light_mesh_index_buffer_info.offset = vulkan_globals.rt_light_data.static_light_buffer_offset;
+	static_light_mesh_index_buffer_info.range = vulkan_globals.rt_light_data.static_light_count * sizeof(uint32_t);
+
+	// dynamic light mesh buffer;
+	VkDescriptorBufferInfo dynamic_light_mesh_index_buffer_info;
+	memset(&dynamic_light_mesh_index_buffer_info, 0, sizeof(VkDescriptorBufferInfo));
+	dynamic_light_mesh_index_buffer_info.buffer = vulkan_globals.rt_dynamic_index_buffer;
+	dynamic_light_mesh_index_buffer_info.offset = vulkan_globals.rt_light_data.dynamic_light_buffer_offset;
+	dynamic_light_mesh_index_buffer_info.range = vulkan_globals.rt_light_data.dynamic_light_count * sizeof(uint32_t);
+
+	// static light surface index buffer;
+	VkDescriptorBufferInfo static_light_mesh_index_offset_buffer_info;
+	memset(&static_light_mesh_index_offset_buffer_info, 0, sizeof(VkDescriptorBufferInfo));
+	static_light_mesh_index_offset_buffer_info.buffer = vulkan_globals.rt_dynamic_index_buffer;
+	static_light_mesh_index_offset_buffer_info.offset = vulkan_globals.rt_light_data.static_light_surface_buffer_offset;
+	static_light_mesh_index_offset_buffer_info.range = vulkan_globals.rt_light_data.static_light_surface_count * sizeof(uint32_t);
+
+	// dynamic light surface index buffer;
+	VkDescriptorBufferInfo dynamic_light_mesh_index_offset_buffer_info;
+	memset(&dynamic_light_mesh_index_offset_buffer_info, 0, sizeof(VkDescriptorBufferInfo));
+	dynamic_light_mesh_index_offset_buffer_info.buffer = vulkan_globals.rt_dynamic_index_buffer;
+	dynamic_light_mesh_index_offset_buffer_info.offset = vulkan_globals.rt_light_data.dynamic_light_surface_buffer_offset;
+	dynamic_light_mesh_index_offset_buffer_info.range = vulkan_globals.rt_light_data.dynamic_light_surface_count * sizeof(uint32_t);
+
+	VkWriteDescriptorSet raygen_writes[13];
 	memset(&raygen_writes, 0, sizeof(raygen_writes));
 	raygen_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	raygen_writes[0].pNext = &desc_accel_struct;
@@ -1081,20 +1103,48 @@ VkResult R_UpdateRaygenDescriptorSets()
 	raygen_writes[6].pBufferInfo = &dynamic_index_buffer_info;
 
 	raygen_writes[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[7].dstBinding = 8;
+	raygen_writes[7].dstBinding = 7;
 	raygen_writes[7].descriptorCount = 1;
 	raygen_writes[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	raygen_writes[7].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
-	raygen_writes[7].pBufferInfo = &lightEntitiesBufferInfo;
+	raygen_writes[7].pBufferInfo = &static_primitive_buffer_info;
 
 	raygen_writes[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	raygen_writes[8].dstBinding = 9;
+	raygen_writes[8].dstBinding = 8;
 	raygen_writes[8].descriptorCount = 1;
 	raygen_writes[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	raygen_writes[8].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
-	raygen_writes[8].pBufferInfo = &lightEntitiesIndexListBufferInfo;
+	raygen_writes[8].pBufferInfo = &dynamic_primitive_buffer_info;
 
-	vkUpdateDescriptorSets(vulkan_globals.device, 9, raygen_writes, 0, NULL);
+	raygen_writes[9].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[9].dstBinding = 10;
+	raygen_writes[9].descriptorCount = 1;
+	raygen_writes[9].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_writes[9].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
+	raygen_writes[9].pBufferInfo = &static_light_mesh_index_buffer_info;
+
+	raygen_writes[10].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[10].dstBinding = 11;
+	raygen_writes[10].descriptorCount = 1;
+	raygen_writes[10].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_writes[10].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
+	raygen_writes[10].pBufferInfo = &dynamic_light_mesh_index_buffer_info;
+
+	raygen_writes[11].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[11].dstBinding = 12;
+	raygen_writes[11].descriptorCount = 1;
+	raygen_writes[11].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_writes[11].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
+	raygen_writes[11].pBufferInfo = &static_light_mesh_index_offset_buffer_info;
+
+	raygen_writes[12].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	raygen_writes[12].dstBinding = 13;
+	raygen_writes[12].descriptorCount = 1;
+	raygen_writes[12].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	raygen_writes[12].dstSet = vulkan_globals.raygen_desc_set[current_frame_index];
+	raygen_writes[12].pBufferInfo = &dynamic_light_mesh_index_offset_buffer_info;
+
+	vkUpdateDescriptorSets(vulkan_globals.device, 13, raygen_writes, 0, NULL);
 
 	return VK_SUCCESS;
 }
@@ -1262,14 +1312,16 @@ R_RenderScene_RTX
 */
 void R_RenderScene_RTX(void)
 {
+
 	static entity_t r_worldentity;	//so we can make sure currententity is valid
 	currententity = &r_worldentity;
 
 	R_AllocateDescriptorSets();
 
+	raygen_uniform_data_t frame_data;
+
 	TexMgr_LoadActiveTextures();
-	R_SetupCameraMatrices_RTX();
-	//R_CreateLightEntitiesList(cl.viewent.origin);
+	R_SetupCameraMatrices_RTX(&frame_data);
 
 	// TODO: Move to other place;
 	if (vulkan_globals.acceleration_structure_scratch_buffer.buffer == NULL) {
@@ -1292,12 +1344,25 @@ void R_RenderScene_RTX(void)
 	// Reset blas data each frame
 	rt_blas_data_t* blas_data = malloc(2 * sizeof(rt_blas_data_t));
 	memset(blas_data, 0, 2 * sizeof(rt_blas_data_t));
-	//free(vulkan_globals.rt_blas_data_pointer);
+	free(vulkan_globals.rt_blas_data_pointer);
 	vulkan_globals.rt_blas_data_pointer = blas_data;
 	vulkan_globals.rt_current_blas_index = 0;
 
+	// temporary rt_primitive pointer
+
+	//free(vulkan_globals.rt_dynamic_primitive_data_pointer);
+	vulkan_globals.rt_dynamic_primitive_data_pointer = malloc(32768 * sizeof(rt_primitive_t));
+	vulkan_globals.rt_dynamic_primitive_data_count = 0;
+	vulkan_globals.rt_dynamic_primitive_data_offset = 0;
+
+	vulkan_globals.rt_dynamic_light_primitive_index_data_pointer = malloc(32768 * sizeof(uint32_t));
+	vulkan_globals.rt_dynamic_light_primitive_count = 0;
+
+	vulkan_globals.rt_dynamic_light_surface_data_pointer = malloc(32768 * sizeof(uint32_t));
+	vulkan_globals.rt_dynamic_light_surface_count = 0;
+
 	//Blas 0 (static)
-	RT_InitializeDynamicBuffers();
+	//RT_InitializeDynamicBuffers();
 
 	vulkan_globals.rt_current_blas_index++;
 
@@ -1306,6 +1371,36 @@ void R_RenderScene_RTX(void)
 
 	RT_LoadDynamicAliasGeometry();
 
+	// Load light meshes
+
+	RT_LoadWorldMeshLightTriangles();
+
+	// adds dynamic primitve data to dynamic vertex buffer
+	VkBuffer dynamic_vertex_buffer;
+	VkDeviceSize dynamic_vertex_buffer_offset;
+	byte* dynamic_vertex = R_VertexAllocate(sizeof(rt_primitive_t) * vulkan_globals.rt_dynamic_primitive_data_count, &dynamic_vertex_buffer, &dynamic_vertex_buffer_offset);
+	vulkan_globals.rt_dynamic_primitive_data_offset = dynamic_vertex_buffer_offset;
+	memcpy(dynamic_vertex, (byte*)vulkan_globals.rt_dynamic_primitive_data_pointer, vulkan_globals.rt_dynamic_primitive_data_count * sizeof(rt_primitive_t));
+
+	vulkan_globals.rt_dynamic_primitive_buffer = dynamic_vertex_buffer;
+
+	// dynamic light primitive indices
+	VkBuffer dynamic_index_buffer;
+	VkDeviceSize dynamic_index_buffer_offset;
+	byte* indices = R_IndexAllocate(vulkan_globals.rt_dynamic_light_primitive_count * sizeof(uint32_t), &dynamic_index_buffer, &dynamic_index_buffer_offset);
+	memcpy(indices, vulkan_globals.rt_dynamic_light_primitive_index_data_pointer, vulkan_globals.rt_dynamic_light_primitive_count * sizeof(uint32_t));
+
+	vulkan_globals.rt_light_data.dynamic_light_buffer_offset = dynamic_index_buffer_offset;
+	vulkan_globals.rt_light_data.dynamic_light_count = vulkan_globals.rt_dynamic_light_primitive_count;
+
+	// surface shit
+
+	indices = R_IndexAllocate(vulkan_globals.rt_dynamic_light_surface_count * sizeof(uint32_t), &dynamic_index_buffer, &dynamic_index_buffer_offset);
+	memcpy(indices, vulkan_globals.rt_dynamic_light_surface_data_pointer, vulkan_globals.rt_dynamic_light_surface_count * sizeof(uint32_t));
+
+	vulkan_globals.rt_light_data.dynamic_light_surface_buffer_offset = dynamic_index_buffer_offset;
+	vulkan_globals.rt_light_data.dynamic_light_surface_count = vulkan_globals.rt_dynamic_light_surface_count;
+
 	// Creating acceleration structure instances
 
 	VkMemoryBarrier memoryBarrier;
@@ -1313,7 +1408,6 @@ void R_RenderScene_RTX(void)
 	memoryBarrier.pNext = VK_NULL_HANDLE;
 	memoryBarrier.srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
 	memoryBarrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-	memoryBarrier;
 
 	//int blas_count = vulkan_globals.rt_current_blas_index + 1;
 	
@@ -1325,7 +1419,7 @@ void R_RenderScene_RTX(void)
 		VK_FORMAT_R32G32B32_SFLOAT, VK_INDEX_TYPE_UINT16, VK_NULL_HANDLE);
 	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
 
-	//// dynamic model blas
+	////// dynamic model blas
 	rt_blas_data_t dynamic_blas = blas_data[1];
 	RT_Create_BLAS_Instance(&vulkan_globals.blas_instances[vulkan_globals.current_command_buffer].dynamic_blas, vulkan_globals.rt_dynamic_vertex_buffer,
 		dynamic_blas.vertex_buffer_offset, dynamic_blas.vertex_count,
@@ -1334,14 +1428,38 @@ void R_RenderScene_RTX(void)
 		VK_FORMAT_R32G32B32_SFLOAT, VK_INDEX_TYPE_UINT32, dynamic_blas.transform_data_buffer);
 	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
 
+	//static model blas
+	//rt_blas_data_t dynamic_blas = blas_data[1];
+	/*RT_Create_BLAS_Instance(&vulkan_globals.blas_instances[vulkan_globals.current_command_buffer].dynamic_blas, vulkan_globals.rt_static_vertex_buffer_resource.buffer,
+		0, vulkan_globals.rt_static_vertex_count,
+		vulkan_globals.rt_light_data.light_count / 3, sizeof(rt_vertex_t), vulkan_globals.rt_dynamic_index_buffer,
+		vulkan_globals.rt_light_data.light_count, vulkan_globals.rt_light_data.light_buffer_offset,
+		VK_FORMAT_R32G32B32_SFLOAT, VK_INDEX_TYPE_UINT32, VK_NULL_HANDLE);
+	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);*/
+
 	R_Create_TLAS(2);
 	vkCmdPipelineBarrier(vulkan_globals.command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &memoryBarrier, 0, 0, 0, 0);
+
+	frame_data.numStaticIndices = vulkan_globals.rt_static_vertex_count;
+	frame_data.numDynamicIndices = dynamic_blas.index_count;
+	frame_data.numStaticLightPrimitives = vulkan_globals.rt_light_data.static_light_count;
+	frame_data.numDynamicLightPrimitives = vulkan_globals.rt_light_data.dynamic_light_count;
+	frame_data.numStaticLightSurfaces = vulkan_globals.rt_light_data.static_light_surface_count;
+	frame_data.numDynamicLightSurfaces = vulkan_globals.rt_light_data.dynamic_light_surface_count;
+
+	void* data = buffer_map(&vulkan_globals.rt_uniform_buffer[vulkan_globals.current_command_buffer]);
+	memcpy(data, &frame_data, sizeof(raygen_uniform_data_t));
+	buffer_unmap(&vulkan_globals.rt_uniform_buffer[vulkan_globals.current_command_buffer]);
 
 	R_UpdateRaygenDescriptorSets();
 
 	R_InitTraceRays();
 
 	S_ExtraUpdate();
+
+	free(vulkan_globals.rt_dynamic_primitive_data_pointer);
+	free(vulkan_globals.rt_dynamic_light_primitive_index_data_pointer);
+	free(vulkan_globals.rt_dynamic_light_surface_data_pointer);
 
 }
 

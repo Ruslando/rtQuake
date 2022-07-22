@@ -22,6 +22,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
 
+
+#include <stdbool.h>
 #ifndef GLQUAKE_H
 #define GLQUAKE_H
 
@@ -146,9 +148,13 @@ extern int r_trace_line_cache_counter;
 // Ray generation shader structs
 
 typedef struct raygen_uniform_data_s {
-	uint32_t maxDepth;
-	uint32_t maxSamples;
 	uint32_t frame;
+	uint32_t numDynamicIndices;
+	uint32_t numStaticIndices;
+	uint32_t numDynamicLightPrimitives;
+	uint32_t numStaticLightPrimitives;
+	uint32_t numDynamicLightSurfaces;
+	uint32_t numStaticLightSurfaces;
 } raygen_uniform_data_t;
 
 typedef struct raygen_push_constants_s {
@@ -197,10 +203,17 @@ typedef struct rt_vertex_s {
 	float vertex_pos[3];
 	float vertex_tx_coords[2];
 	float vertex_fb_coords[2];
-	int	tx_index;
+} rt_vertex_t;
+
+typedef struct rt_primitive_s {
+	int tx_index;
 	int fb_index;
 	int material_index;
-} rt_vertex_t;
+	float total_triangle_area;
+	float light_area_percentage;
+	float geometric_normal[3];
+	float brightest_perceived_light_color[3];
+} rt_primitive_t;
 
 typedef struct rt_data_s {
 	/*size_t* blas_instances_count;
@@ -226,7 +239,7 @@ typedef struct rt_data_s {
 	model_material_t** texture_data;
 } rt_data_t;
 
-typedef struct rt_blas_data_t {
+typedef struct rt_blas_data_s {
 	int vertex_buffer_offset;
 	int vertex_count;
 	int index_buffer_offset;
@@ -235,6 +248,18 @@ typedef struct rt_blas_data_t {
 	int model_info_buffer_offset;
 	VkBuffer transform_data_buffer;
 } rt_blas_data_t;
+
+typedef struct rt_light_data_s {
+	int static_light_buffer_offset;
+	int static_light_count;
+	int dynamic_light_buffer_offset;
+	int dynamic_light_count;
+	int static_light_surface_buffer_offset;
+	int static_light_surface_count;
+	int dynamic_light_surface_buffer_offset;
+	int dynamic_light_surface_count;
+} rt_light_data_t;
+
 
 typedef struct rt_blas_shader_data_s {
 	int vertex_buffer_offset;
@@ -334,11 +359,24 @@ typedef struct
 	int									as_instances_pointer;
 	BufferResource_t					as_instances[FRAMES_IN_FLIGHT];
 
-	// TODO: Replace most buffers with the dynamic buffers made in rtquake
+	VkBuffer							rt_dynamic_primitive_buffer;
+	BufferResource_t					rt_static_primitive_buffer_resource;
+	int									rt_static_primitive_count;
+
 	BufferResource_t					rt_static_vertex_buffer_resource;
 	int									rt_static_vertex_count;
 
 	VkBuffer							rt_dynamic_vertex_buffer;
+
+	rt_primitive_t*						rt_dynamic_primitive_data_pointer;
+	int									rt_dynamic_primitive_data_count;
+	int									rt_dynamic_primitive_data_offset;
+
+	uint32_t*							rt_dynamic_light_primitive_index_data_pointer;
+	int									rt_dynamic_light_primitive_count;
+
+	uint32_t*							rt_dynamic_light_surface_data_pointer;
+	int									rt_dynamic_light_surface_count;
 
 	VkDeviceMemory						rt_static_index_memory;
 	VkBuffer							rt_static_index_buffer;
@@ -346,10 +384,12 @@ typedef struct
 
 	VkBuffer							rt_dynamic_index_buffer;
 
-	BufferResource_t					rt_uniform_buffer;
+	BufferResource_t					rt_uniform_buffer[FRAMES_IN_FLIGHT];
 
 	int									rt_current_blas_index;
 	rt_blas_data_t*						rt_blas_data_pointer;
+
+	rt_light_data_t						rt_light_data;
 
 	int									rt_light_entities_count;
 	rt_light_entity_t*					rt_light_entities;
@@ -357,8 +397,8 @@ typedef struct
 	BufferResource_t					rt_light_entities_buffer;
 	BufferResource_t					rt_light_entities_list_buffer;
 
-	VkDescriptorImageInfo*				texture_list;
-	int									texture_list_count;
+	VkDescriptorImageInfo*				texture_list[FRAMES_IN_FLIGHT];
+	int									texture_list_count[FRAMES_IN_FLIGHT];
 
 	// Instance extensions
 	qboolean							get_surface_capabilities_2;
@@ -642,7 +682,7 @@ void R_UpdateWarpTextures(void);
 
 void R_DrawWorld(void);
 void RT_LoadStaticWorldGeometry();
-void RT_LoadDynamicWorldIndices();
+void RT_LoadWorldMeshLightTriangles();
 void R_DrawAliasModel(entity_t* e);
 void R_DrawBrushModel(entity_t* e);
 void R_DrawSpriteModel(entity_t* e);
@@ -692,6 +732,7 @@ void R_DrawTextureChains(qmodel_t* model, entity_t* ent, texchain_t chain);
 void R_DrawWorld_Water(void);
 
 void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, float mvp[16]);
+void RT_LoadLightMeshTextureChains(qmodel_t* model, entity_t* ent, texchain_t chain);
 
 float GL_WaterAlphaForSurface(msurface_t* fa);
 

@@ -24,6 +24,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "gl_heap.h"
+extern cvar_t scr_fov, cl_gun_fovscale;
 
 /*
 =================================================================
@@ -60,8 +61,10 @@ int		stripcount;
 
 static glheap_t ** vertex_buffer_heaps;
 static glheap_t ** index_buffer_heaps;
+static glheap_t** primitive_buffer_heaps;
 static int num_vertex_buffer_heaps;
 static int num_index_buffer_heaps;
+static int num_primitive_buffer_heaps;
 
 typedef struct
 {
@@ -549,9 +552,213 @@ Upload the given alias model's mesh to a VBO
 Original code by MH from RMQEngine
 ================
 */
+ //static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
+ //{
+ //	int totalvbosize = 0;
+ //	int remaining_size;
+ //	int copy_offset;
+ //	const aliasmesh_t *desc;
+ //	const short *indexes;
+ //	const trivertx_t *trivertexes;
+ //	byte *vbodata;
+ //	int f;
+ //	VkResult err;
+
+ //	GLMesh_DeleteVertexBuffer(m);
+
+ //// count the sizes we need
+	//
+ //	// ericw -- RMQEngine stored these vbo*ofs values in aliashdr_t, but we must not
+ //	// mutate Mod_Extradata since it might be reloaded from disk, so I moved them to qmodel_t
+ //	// (test case: roman1.bsp from arwop, 64mb heap)
+ //	m->vboindexofs = 0;
+	//
+ //	m->vboxyzofs = 0;
+ //	totalvbosize += (hdr->numposes * hdr->numverts_vbo * sizeof (meshxyz_t)); // ericw -- what RMQEngine called nummeshframes is called numposes in QuakeSpasm
+	//
+ //	m->vbostofs = totalvbosize;
+ //	totalvbosize += (hdr->numverts_vbo * sizeof (meshst_t));
+	//
+ //	if (isDedicated) return;
+ //	if (!hdr->numindexes) return;
+ //	if (!totalvbosize) return;
+	//
+ //// grab the pointers to data in the extradata
+
+ //	desc = (aliasmesh_t *) ((byte *) hdr + hdr->meshdesc);
+ //	indexes = (short *) ((byte *) hdr + hdr->indexes);
+ //	trivertexes = (trivertx_t *) ((byte *)hdr + hdr->vertexes);
+
+ //	{
+ //		const int totalindexsize = hdr->numindexes * sizeof (unsigned short);
+
+ //		// Allocate index buffer & upload to GPU
+ //		VkBufferCreateInfo buffer_create_info;
+ //		memset(&buffer_create_info, 0, sizeof(buffer_create_info));
+ //		buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+ //		buffer_create_info.size = totalindexsize;
+ //		buffer_create_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+ //		| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+ //		err = vkCreateBuffer(vulkan_globals.device, &buffer_create_info, NULL, &m->index_buffer);
+ //		if (err != VK_SUCCESS)
+ //			Sys_Error("vkCreateBuffer failed");
+
+ //		GL_SetObjectName((uint64_t)m->index_buffer, VK_OBJECT_TYPE_BUFFER, m->name);
+
+ //		VkMemoryRequirements memory_requirements;
+ //		vkGetBufferMemoryRequirements(vulkan_globals.device, m->index_buffer, &memory_requirements);
+
+ //		//uint32_t memory_type_index = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+ //		uint32_t memory_type_index = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+	//	
+ //		VkDeviceSize heap_size = INDEX_HEAP_SIZE_MB * (VkDeviceSize)1024 * (VkDeviceSize)1024;
+ //		VkDeviceSize aligned_offset = GL_AllocateFromHeaps(&num_index_buffer_heaps, &index_buffer_heaps, heap_size, memory_type_index, memory_requirements.size,
+ //			memory_requirements.alignment, &m->index_heap, &m->index_heap_node, &num_vulkan_mesh_allocations, "Index Buffers");
+ //		err = vkBindBufferMemory(vulkan_globals.device, m->index_buffer, m->index_heap->memory, aligned_offset);
+ //		if (err != VK_SUCCESS)
+ //			Sys_Error("vkBindBufferMemory failed");
+
+ //		remaining_size = totalindexsize;
+ //		copy_offset = 0;
+
+ //		while (remaining_size > 0)
+ //		{
+ //			const int size_to_copy = q_min(remaining_size, vulkan_globals.staging_buffer_size);
+ //			VkBuffer staging_buffer;
+ //			VkCommandBuffer command_buffer;
+ //			int staging_offset;
+ //			unsigned char * staging_memory = R_StagingAllocate(size_to_copy, 1, &command_buffer, &staging_buffer, &staging_offset);
+
+ //			memcpy(staging_memory, (byte*)indexes + copy_offset, size_to_copy);
+
+ //			VkBufferCopy region;
+ //			region.srcOffset = staging_offset;
+ //			region.dstOffset = copy_offset;
+ //			region.size = size_to_copy;
+ //			vkCmdCopyBuffer(command_buffer, staging_buffer, m->index_buffer, 1, &region);
+
+ //			copy_offset += size_to_copy;
+ //			remaining_size -= size_to_copy;
+ //		}
+ //	}
+
+ //// create the vertex buffer (empty)
+
+ //	vbodata = (byte *) malloc(totalvbosize);
+ //	memset(vbodata, 0, totalvbosize);
+
+ //// fill in the vertices at the start of the buffer
+ //	for (f = 0; f < hdr->numposes; f++) // ericw -- what RMQEngine called nummeshframes is called numposes in QuakeSpasm
+ //	{
+ //		int v;
+ //		meshxyz_t *xyz = (meshxyz_t *) (vbodata + (f * hdr->numverts_vbo * sizeof (meshxyz_t)));
+
+ //		const trivertx_t *tv = trivertexes + (hdr->numverts * f);
+
+ //		for (v = 0; v < hdr->numverts_vbo; v++)
+ //		{
+ //			trivertx_t trivert = tv[desc[v].vertindex];
+
+ //			xyz[v].xyz[0] = trivert.v[0];
+ //			xyz[v].xyz[1] = trivert.v[1];
+ //			xyz[v].xyz[2] = trivert.v[2];
+ //			xyz[v].xyz[3] = 1;	// need w 1 for 4 byte vertex compression
+
+ //			// map the normal coordinates in [-1..1] to [-127..127] and store in an unsigned char.
+ //			// this introduces some error (less than 0.004), but the normals were very coarse
+ //			// to begin with
+ //			xyz[v].normal[0] = 127 * r_avertexnormals[trivert.lightnormalindex][0];
+ //			xyz[v].normal[1] = 127 * r_avertexnormals[trivert.lightnormalindex][1];
+ //			xyz[v].normal[2] = 127 * r_avertexnormals[trivert.lightnormalindex][2];
+ //			xyz[v].normal[3] = 0;	// unused; for 4-byte alignment
+ //		}
+ //	}
+
+ //// fill in the ST coords at the end of the buffer
+ //	{
+ //		meshst_t *st;
+ //		float hscale, vscale;
+
+ //		//johnfitz -- padded skins
+ //		hscale = (float)hdr->skinwidth/(float)TexMgr_PadConditional(hdr->skinwidth);
+ //		vscale = (float)hdr->skinheight/(float)TexMgr_PadConditional(hdr->skinheight);
+ //		//johnfitz
+
+ //		st = (meshst_t *) (vbodata + m->vbostofs);
+ //		for (f = 0; f < hdr->numverts_vbo; f++)
+ //		{
+ //			st[f].st[0] = hscale * ((float) desc[f].st[0] + 0.5f) / (float) hdr->skinwidth;
+ //			st[f].st[1] = vscale * ((float) desc[f].st[1] + 0.5f) / (float) hdr->skinheight;
+ //		}
+ //	}
+
+ //	// Allocate vertex buffer & upload to GPU
+ //	{
+ //		VkBufferCreateInfo buffer_create_info;
+ //		memset(&buffer_create_info, 0, sizeof(buffer_create_info));
+ //		buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+ //		buffer_create_info.size = totalvbosize;
+ //		buffer_create_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+ //		err = vkCreateBuffer(vulkan_globals.device, &buffer_create_info, NULL, &m->vertex_buffer);
+ //		if (err != VK_SUCCESS)
+ //			Sys_Error("vkCreateBuffer failed");
+
+ //		GL_SetObjectName((uint64_t)m->vertex_buffer, VK_OBJECT_TYPE_BUFFER, m->name);
+
+ //		VkMemoryRequirements memory_requirements;
+ //		vkGetBufferMemoryRequirements(vulkan_globals.device, m->vertex_buffer, &memory_requirements);
+
+ //		//uint32_t memory_type_index = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+ //		uint32_t memory_type_index = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+	//	
+ //		VkDeviceSize heap_size = VERTEX_HEAP_SIZE_MB * (VkDeviceSize)1024 * (VkDeviceSize)1024;
+ //		VkDeviceSize aligned_offset = GL_AllocateFromHeaps(&num_vertex_buffer_heaps, &vertex_buffer_heaps, heap_size, memory_type_index, memory_requirements.size,
+ //			memory_requirements.alignment, &m->vertex_heap, &m->vertex_heap_node, &num_vulkan_mesh_allocations, "Vertex Buffers");
+ //		err = vkBindBufferMemory(vulkan_globals.device, m->vertex_buffer, m->vertex_heap->memory, aligned_offset);
+ //		if (err != VK_SUCCESS)
+ //			Sys_Error("vkBindBufferMemory failed");
+
+ //		remaining_size = totalvbosize;
+ //		copy_offset = 0;
+
+ //		while (remaining_size > 0)
+ //		{
+ //			const int size_to_copy = q_min(remaining_size, vulkan_globals.staging_buffer_size);
+ //			VkBuffer staging_buffer;
+ //			VkCommandBuffer command_buffer;
+ //			int staging_offset;
+ //			unsigned char * staging_memory = R_StagingAllocate(size_to_copy, 1, &command_buffer, &staging_buffer, &staging_offset);
+
+ //			memcpy(staging_memory, (byte*)vbodata + copy_offset, size_to_copy);
+
+ //			VkBufferCopy region;
+ //			region.srcOffset = staging_offset;
+ //			region.dstOffset = copy_offset;
+ //			region.size = size_to_copy;
+ //			vkCmdCopyBuffer(command_buffer, staging_buffer, m->vertex_buffer, 1, &region);
+
+ //			copy_offset += size_to_copy;
+ //			remaining_size -= size_to_copy;
+ //		}
+ //	}
+
+ //	free (vbodata);
+	//
+ //}
+
+/*
+================
+GLMesh_LoadVertexBuffer
+
+Upload the given alias model's mesh to a VBO
+
+Original code by MH from RMQEngine
+================
+*/
 static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 {
 	int totalvbosize = 0;
+	int totalprimitivesize = 0;
 	int remaining_size;
 	int copy_offset;
 	const aliasmesh_t *desc;
@@ -571,10 +778,10 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	m->vboindexofs = 0;
 	
 	m->vboxyzofs = 0;
-	totalvbosize += (hdr->numposes * hdr->numverts_vbo * sizeof (meshxyz_t)); // ericw -- what RMQEngine called nummeshframes is called numposes in QuakeSpasm
+	totalvbosize += (hdr->numposes * hdr->numverts_vbo * sizeof (rt_vertex_t)); // ericw -- what RMQEngine called nummeshframes is called numposes in QuakeSpasm
 	
-	m->vbostofs = totalvbosize;
-	totalvbosize += (hdr->numverts_vbo * sizeof (meshst_t));
+	/*m->vbostofs = totalvbosize;
+	totalvbosize += (hdr->numverts_vbo * sizeof (meshst_t));*/
 	
 	if (isDedicated) return;
 	if (!hdr->numindexes) return;
@@ -644,48 +851,64 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	vbodata = (byte *) malloc(totalvbosize);
 	memset(vbodata, 0, totalvbosize);
 
-// fill in the vertices at the start of the buffer
+	float fovscale = 1.0f;
+	//entity_t *bruh = &cl.viewent;
+	if (scr_fov.value > 90.f && cl_gun_fovscale.value)
+	{
+		fovscale = tan(scr_fov.value * (0.5f * M_PI / 180.f));
+		fovscale = 1.f + (fovscale - 1.f) * cl_gun_fovscale.value;
+	}
+
+	float model_matrix[16];
+	IdentityMatrix(model_matrix);
+
+	float translation_matrix[16];
+	TranslationMatrix(translation_matrix, paliashdr->scale_origin[0], paliashdr->scale_origin[1] * fovscale, paliashdr->scale_origin[2] * fovscale);
+	MatrixMultiply(model_matrix, translation_matrix);
+
+	// Scale multiplied by 255 because we use UNORM instead of USCALED in the vertex shader
+	float scale_matrix[16];
+	ScaleMatrix(scale_matrix, hdr->scale[0] * 255.0f, paliashdr->scale[1] * fovscale * 255.0f, paliashdr->scale[2] * fovscale * 255.0f);
+	MatrixMultiply(model_matrix, scale_matrix);
+
+// fill in the vertices and ST coords
 	for (f = 0; f < hdr->numposes; f++) // ericw -- what RMQEngine called nummeshframes is called numposes in QuakeSpasm
 	{
+		// vertex pos
 		int v;
-		meshxyz_t *xyz = (meshxyz_t *) (vbodata + (f * hdr->numverts_vbo * sizeof (meshxyz_t)));
-
+		rt_vertex_t* rt_vertex = (rt_vertex_t*)(vbodata + (f * hdr->numverts_vbo * sizeof(rt_vertex_t)));
 		const trivertx_t *tv = trivertexes + (hdr->numverts * f);
+
+		// ST coords
+		float hscale, vscale;
+
+		//johnfitz -- padded skins
+		hscale = (float)hdr->skinwidth / (float)TexMgr_PadConditional(hdr->skinwidth);
+		vscale = (float)hdr->skinheight / (float)TexMgr_PadConditional(hdr->skinheight);
 
 		for (v = 0; v < hdr->numverts_vbo; v++)
 		{
 			trivertx_t trivert = tv[desc[v].vertindex];
 
-			xyz[v].xyz[0] = trivert.v[0];
-			xyz[v].xyz[1] = trivert.v[1];
-			xyz[v].xyz[2] = trivert.v[2];
-			xyz[v].xyz[3] = 1;	// need w 1 for 4 byte vertex compression
+			float vertex[16];
+			vertex[0] = trivert.v[0] / 255.0f;
+			vertex[1] = trivert.v[1] / 255.0f;
+			vertex[2] = trivert.v[2] / 255.0f;
+			vertex[3] = 1;
 
-			// map the normal coordinates in [-1..1] to [-127..127] and store in an unsigned char.
-			// this introduces some error (less than 0.004), but the normals were very coarse
-			// to begin with
-			xyz[v].normal[0] = 127 * r_avertexnormals[trivert.lightnormalindex][0];
-			xyz[v].normal[1] = 127 * r_avertexnormals[trivert.lightnormalindex][1];
-			xyz[v].normal[2] = 127 * r_avertexnormals[trivert.lightnormalindex][2];
-			xyz[v].normal[3] = 0;	// unused; for 4-byte alignment
-		}
-	}
+			float matrix_copy[16];
+			memcpy(matrix_copy, model_matrix, 16 * sizeof(float));
+			MatrixMultiply(matrix_copy, vertex);
 
-// fill in the ST coords at the end of the buffer
-	{
-		meshst_t *st;
-		float hscale, vscale;
+			rt_vertex[v].vertex_pos[0] = matrix_copy[0];
+			rt_vertex[v].vertex_pos[1] = matrix_copy[1];
+			rt_vertex[v].vertex_pos[2] = matrix_copy[2];
+			
+			rt_vertex[v].vertex_tx_coords[0] = hscale * ((float)desc[v].st[0] + 0.5f) / (float)hdr->skinwidth;
+			rt_vertex[v].vertex_tx_coords[1] = vscale * ((float)desc[v].st[1] + 0.5f) / (float)hdr->skinheight;
 
-		//johnfitz -- padded skins
-		hscale = (float)hdr->skinwidth/(float)TexMgr_PadConditional(hdr->skinwidth);
-		vscale = (float)hdr->skinheight/(float)TexMgr_PadConditional(hdr->skinheight);
-		//johnfitz
-
-		st = (meshst_t *) (vbodata + m->vbostofs);
-		for (f = 0; f < hdr->numverts_vbo; f++)
-		{
-			st[f].st[0] = hscale * ((float) desc[f].st[0] + 0.5f) / (float) hdr->skinwidth;
-			st[f].st[1] = vscale * ((float) desc[f].st[1] + 0.5f) / (float) hdr->skinheight;
+			rt_vertex[v].vertex_fb_coords[0] = hscale * ((float)desc[v].st[0] + 0.5f) / (float)hdr->skinwidth;
+			rt_vertex[v].vertex_fb_coords[1] = vscale * ((float)desc[v].st[1] + 0.5f) / (float)hdr->skinheight;
 		}
 	}
 
@@ -739,7 +962,101 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 		}
 	}
 
+	totalprimitivesize = (hdr->numindexes / 3) * sizeof(rt_primitive_t);
+	
+	rt_primitive_t* rt_primitives = malloc(totalprimitivesize);
+
+	float totalMeshArea = 0;
+
+	// precalculated normal data for surfaces (primitives)
+	for (unsigned int numindex = 0; numindex < hdr->numindexes; numindex +=3)
+	{	
+		uint32_t primitive_index = numindex / 3;
+
+		uint16_t* indices = (uint16_t*)indexes;
+		uint16_t i1 = indices[numindex]; uint16_t i2 = indices[numindex + 1]; uint16_t i3 = indices[numindex + 2];
+
+		rt_vertex_t* vbodata_rt_vertex = (rt_vertex_t*)vbodata;
+
+		rt_vertex_t verts[3] = { vbodata_rt_vertex[i1], vbodata_rt_vertex[i2] , vbodata_rt_vertex[i3] };
+
+		vec3_t lv1 = { verts[0].vertex_pos[0], verts[0].vertex_pos[1], verts[0].vertex_pos[2] };
+		vec3_t lv2 = { verts[1].vertex_pos[0], verts[1].vertex_pos[1], verts[1].vertex_pos[2] };
+		vec3_t lv3 = { verts[2].vertex_pos[0], verts[2].vertex_pos[1], verts[2].vertex_pos[2] };
+
+		vec3_t lv2mlv1; _VectorSubtract(lv2, lv1, lv2mlv1);
+		vec3_t lv3mlv1; _VectorSubtract(lv3, lv1, lv3mlv1);
+		vec3_t lv3mlv2; _VectorSubtract(lv3, lv2, lv3mlv2);
+
+		vec3_t lightNormal; CrossProduct(lv2mlv1, lv3mlv1, lightNormal);
+		VectorNormalize(lightNormal);
+
+		rt_primitives[primitive_index].geometric_normal[0] = lightNormal[0];
+		rt_primitives[primitive_index].geometric_normal[1] = lightNormal[1];
+		rt_primitives[primitive_index].geometric_normal[2] = lightNormal[2];
+
+		// triangle area calculation
+
+		float a = VectorLength(lv2mlv1);
+		float b = VectorLength(lv3mlv1);
+		float c = VectorLength(lv3mlv2);
+
+		totalMeshArea += abs(0.25f * sqrt((a + b + c) * (-a + b + c) * (a - b + c) * (a + b - c)));
+	}
+
+	for (unsigned int numindex = 0; numindex < hdr->numindexes / 3.0f; numindex++)
+	{
+		rt_primitives[numindex].total_triangle_area = totalMeshArea;
+	}
+
 	free (vbodata);
+
+	VkBufferCreateInfo buffer_create_info;
+	memset(&buffer_create_info, 0, sizeof(buffer_create_info));
+	buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	buffer_create_info.size = totalprimitivesize;
+	buffer_create_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+	err = vkCreateBuffer(vulkan_globals.device, &buffer_create_info, NULL, &m->primitive_buffer);
+	if (err != VK_SUCCESS)
+		Sys_Error("vkCreateBuffer failed");
+
+	GL_SetObjectName((uint64_t)m->primitive_buffer, VK_OBJECT_TYPE_BUFFER, m->name);
+
+	VkMemoryRequirements memory_requirements;
+	vkGetBufferMemoryRequirements(vulkan_globals.device, m->primitive_buffer, &memory_requirements);
+
+	//uint32_t memory_type_index = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+	uint32_t memory_type_index = GL_MemoryTypeFromProperties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+
+	VkDeviceSize heap_size = VERTEX_HEAP_SIZE_MB * (VkDeviceSize)1024 * (VkDeviceSize)1024;
+	VkDeviceSize aligned_offset = GL_AllocateFromHeaps(&num_primitive_buffer_heaps, &primitive_buffer_heaps, heap_size, memory_type_index, memory_requirements.size,
+		memory_requirements.alignment, &m->primitive_heap, &m->primitive_heap_node, &num_vulkan_mesh_allocations, "Primitive Buffers");
+	err = vkBindBufferMemory(vulkan_globals.device, m->primitive_buffer, m->primitive_heap->memory, aligned_offset);
+	if (err != VK_SUCCESS)
+		Sys_Error("vkBindBufferMemory failed");
+
+	remaining_size = totalprimitivesize;
+	copy_offset = 0;
+
+	while (remaining_size > 0)
+	{
+		const int size_to_copy = q_min(remaining_size, vulkan_globals.staging_buffer_size);
+		VkBuffer staging_buffer;
+		VkCommandBuffer command_buffer;
+		int staging_offset;
+		unsigned char* staging_memory = R_StagingAllocate(size_to_copy, 1, &command_buffer, &staging_buffer, &staging_offset);
+
+		memcpy(staging_memory, (byte*)rt_primitives + copy_offset, size_to_copy);
+
+		VkBufferCopy region;
+		region.srcOffset = staging_offset;
+		region.dstOffset = copy_offset;
+		region.size = size_to_copy;
+		vkCmdCopyBuffer(command_buffer, staging_buffer, m->primitive_buffer, 1, &region);
+
+		copy_offset += size_to_copy;
+		remaining_size -= size_to_copy;
+	}
 	
 }
 

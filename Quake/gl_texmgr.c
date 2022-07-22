@@ -378,77 +378,85 @@ void TexMgr_NewGame (void)
 
 void TexMgr_LoadActiveTextures(void)
 {
+	int current_frame_index = vulkan_globals.current_command_buffer;
 
 	// TODO: Only run when loading new level or on respawn
-	free(vulkan_globals.texture_list);
-	VkDescriptorImageInfo* texture_image_infos = (VkDescriptorImageInfo*)malloc(MAX_GLTEXTURES * sizeof(VkDescriptorImageInfo));
-	memset(texture_image_infos, 0, MAX_GLTEXTURES * sizeof(VkDescriptorImageInfo));
+	free(vulkan_globals.texture_list[current_frame_index]);
+	VkDescriptorImageInfo* texture_image_infos = (VkDescriptorImageInfo*) malloc(MAX_GLTEXTURES * sizeof(VkDescriptorImageInfo));
 
-	gltexture_t* current_texture = active_gltextures;
+	if (texture_image_infos != NULL) {
+		gltexture_t* current_texture = active_gltextures;
 
-	int maxImageIndex = -1;
+		int maxImageIndex = -1;
 
-	qboolean last_check = false;
-	while (current_texture->next != NULL && !last_check) {
-		glheapnode_t* heapnode = current_texture->heap_node;
+		qboolean last_check = false;
+		while (current_texture->next != NULL && !last_check) {
+			glheapnode_t* heapnode = current_texture->heap_node;
 
-		int imageview_index = -1;
-			
-		while (heapnode->prev != NULL) {
-			heapnode = heapnode->prev;
-			imageview_index++;
+			int imageview_index = -1;
+
+			while (heapnode->prev != NULL) {
+				heapnode = heapnode->prev;
+				imageview_index++;
+			}
+
+			current_texture->heap_node_index = imageview_index;
+
+			if (imageview_index > maxImageIndex) {
+				maxImageIndex = imageview_index;
+			}
+
+			texture_image_infos[imageview_index].imageView = current_texture->image_view;
+			texture_image_infos[imageview_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			texture_image_infos[imageview_index].sampler = vulkan_globals.linear_sampler_lod_bias;
+
+			current_texture = current_texture->next;
 		}
 
-		if (imageview_index > maxImageIndex) {
-			maxImageIndex = imageview_index;
-		}
+		maxImageIndex++;
 
-		texture_image_infos[imageview_index].imageView = current_texture->image_view;
-		texture_image_infos[imageview_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		texture_image_infos[imageview_index].sampler = vulkan_globals.linear_sampler_lod_bias;
-
-		current_texture = current_texture->next;
-	}
-
-	// only update descriptor set when active texture count changes
-	if (maxImageIndex != vulkan_globals.texture_list_count) {
 
 		// reallocates descriptor sets when texture count is lower then before
 		// because descriptors would still keep old texture data even after update
-		if (maxImageIndex < vulkan_globals.texture_list_count) {
+		if (maxImageIndex < vulkan_globals.texture_list_count[current_frame_index]) {
 			vulkan_globals.raygen_desc_set[0] = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
 			vulkan_globals.raygen_desc_set[1] = R_AllocateDescriptorSet(&vulkan_globals.raygen_set_layout);
 		}
 
 		// They may be empty imageviews, but i still have to set a valid sampler and image layout 
-		for (int i = 0; i < MAX_GLTEXTURES; i++) {
+		for (int i = 0; i < maxImageIndex; i++) {
 			VkDescriptorImageInfo image_info = texture_image_infos[i];
-			if (image_info.sampler == NULL) {
+			if (image_info.imageLayout == -842150451) {
 				texture_image_infos[i].imageView = VK_NULL_HANDLE;
 				texture_image_infos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				texture_image_infos[i].sampler = vulkan_globals.linear_sampler_lod_bias;
 			}
 		}
 
-		vulkan_globals.texture_list = texture_image_infos;
-		vulkan_globals.texture_list_count = maxImageIndex;
+		vulkan_globals.texture_list[current_frame_index] = (VkDescriptorImageInfo*)malloc(maxImageIndex * sizeof(VkDescriptorImageInfo));
+
+		if (vulkan_globals.texture_list[current_frame_index] != NULL) {
+			memcpy(vulkan_globals.texture_list[current_frame_index], texture_image_infos, maxImageIndex * sizeof(VkDescriptorImageInfo));
+		}
+			
+		vulkan_globals.texture_list_count[current_frame_index] = maxImageIndex;
 
 		VkWriteDescriptorSet raygen_writes[2];
 		memset(&raygen_writes, 0, sizeof(raygen_writes));
 
 		for (int i = 0; i < 2; i++) {
 			raygen_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			raygen_writes[i].dstBinding = 7;
+			raygen_writes[i].dstBinding = 9;
 			raygen_writes[i].descriptorCount = maxImageIndex;
 			raygen_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			raygen_writes[i].dstSet = vulkan_globals.raygen_desc_set[i];
-			raygen_writes[i].pImageInfo = vulkan_globals.texture_list;
+			raygen_writes[i].pImageInfo = vulkan_globals.texture_list[current_frame_index];
 		}
 
- 		vkUpdateDescriptorSets(vulkan_globals.device, 2, raygen_writes, 0, NULL);
+		vkUpdateDescriptorSets(vulkan_globals.device, 2, raygen_writes, 0, NULL);
 	}
 
-	//free(texture_image_infos);
+	free(texture_image_infos);
 }
 
 /*
@@ -1010,6 +1018,7 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 	VkCommandBuffer command_buffer;
 	int staging_offset;
 	unsigned char * staging_memory = R_StagingAllocate(staging_size, 4, &command_buffer, &staging_buffer, &staging_offset);
+	glt->image_data = malloc(staging_size);
 
 	int num_regions = 0;
 	int mip_offset = 0;
@@ -1022,6 +1031,7 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 		while (mipwidth >= 1 && mipheight >= 1)
 		{
 			memcpy(staging_memory + mip_offset, data, mipwidth * mipheight * 4);
+			memcpy(glt->image_data + mip_offset, data, mipwidth * mipheight * 4);
 			regions[num_regions].bufferOffset = staging_offset + mip_offset;
 			regions[num_regions].imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 			regions[num_regions].imageSubresource.layerCount = 1;
@@ -1043,6 +1053,7 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 	else
 	{
 		memcpy(staging_memory + mip_offset, data, mipwidth * mipheight * 4);
+		memcpy(glt->image_data + mip_offset, data, mipwidth * mipheight * 4);
 		regions[0].bufferOffset = staging_offset + mip_offset;
 		regions[0].imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		regions[0].imageSubresource.layerCount = 1;
@@ -1077,6 +1088,54 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 	image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &image_memory_barrier);
+
+	// calculate brightest perceived color
+	float brightest_perceived_color[4] = { 0,0,0,0 };
+
+	unsigned int source_height = glt->source_height;
+	unsigned int source_width = glt->source_width;
+
+	float brightest_perceived_luminance = 0;
+	uint32_t num_light_pixels = 0;
+
+	for (unsigned int height = 0; height < source_height; height++)
+	{
+		for (unsigned int width = 0; width < source_width; width++)
+		{
+			int index = height * source_width + width;
+			float rgba[4] = { glt->image_data[index * 4 + 0],  glt->image_data[index * 4 + 1],
+								glt->image_data[index * 4 + 2], glt->image_data[index * 4 + 3] };
+
+			if (glt->source_width == 296 && glt->source_height == 140) {
+				int bruh = 1;
+			}
+
+			float perceived_luminance = abs(rgba[0] * 0.2126f + rgba[1] * 0.7152f + rgba[2] * 0.0722f);
+			if (perceived_luminance > 0.05f) {
+				num_light_pixels++;
+			}
+
+			if (perceived_luminance > brightest_perceived_luminance) {
+				brightest_perceived_color[0] = rgba[0]; brightest_perceived_color[1] = rgba[1];
+				brightest_perceived_color[2] = rgba[2]; brightest_perceived_color[3] = rgba[3];
+				brightest_perceived_luminance = perceived_luminance;
+			}
+		}
+	}
+
+	glt->brightest_color[0] = brightest_perceived_color[0]; glt->brightest_color[1] = brightest_perceived_color[1]; glt->brightest_color[2] = brightest_perceived_color[2];
+	glt->light_coverage_percentage = num_light_pixels / (source_height * source_width * 1.0f);
+
+	glheapnode_t* heapnode = glt->heap_node;
+
+	int imageview_index = 0;
+			
+	while (heapnode->prev != NULL) {
+		heapnode = heapnode->prev;
+		imageview_index++;
+	}
+
+	glt->heap_node_index = imageview_index;
 }
 
 /*

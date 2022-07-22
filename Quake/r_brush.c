@@ -288,15 +288,18 @@ void R_DrawBrushModel (entity_t *e)
 	R_ClearTextureChains (clmodel, chain_model);
 	for (i=0 ; i<clmodel->nummodelsurfaces ; i++, psurf++)
 	{
-		pplane = psurf->plane;
-		dot = DotProduct (modelorg, pplane->normal) - pplane->dist;
-		if (((psurf->flags & SURF_PLANEBACK) && (dot < -BACKFACE_EPSILON)) ||
-			(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
-		{
-			R_ChainSurface (psurf, chain_model);
-			//R_RenderDynamicLightmaps(psurf);
-			rs_brushpolys++;
-		}
+		R_ChainSurface(psurf, chain_model);
+		rs_brushpolys++;
+
+		//pplane = psurf->plane;
+		//dot = DotProduct (modelorg, pplane->normal) - pplane->dist;
+		//if (((psurf->flags & SURF_PLANEBACK) && (dot < -BACKFACE_EPSILON)) ||
+		//	(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
+		//{
+		//	R_ChainSurface (psurf, chain_model);
+		//	//R_RenderDynamicLightmaps(psurf);
+		//	rs_brushpolys++;
+		//}
 	}
 
 	//R_DrawTextureChains (clmodel, e, chain_model);
@@ -705,27 +708,53 @@ void GL_DeleteBModelVertexBuffer (void)
 
 void GL_BuildBModelRTVertexAndIndexBuffer (void)
 {
-	unsigned int	numverts, varray_bytes, numindices, iarray_bytes;
+	unsigned int	numverts, varray_bytes, numindices, iarray_bytes,
+		primitive_array_bytes, numprimitives, numlightprimitives, light_array_bytes;
+
 	int		i, j;
 	qmodel_t	*m;
 	uint16_t* iarray;
-	byte	*varray;
+	uint32_t* light_primitives_index_array, *light_model_indices_array;
+	byte	*varray, *primitive_array;
 	int remaining_size;
 	int copy_offset;
 
 	// count all verts in all models
 	numverts = 0;
 	numindices = 0;
-	for (j=1 ; j<MAX_MODELS ; j++)
+	numlightprimitives = 0;
+
+	for (j = 1; j < MAX_MODELS; j++)
 	{
 		m = cl.model_precache[j];
 		if (!m || m->name[0] == '*' || m->type != mod_brush)
 			continue;
 
-		for (i=0 ; i<m->numsurfaces ; i++)
+		for (i = 0; i < m->numsurfaces; i++)
 		{
+			msurface_t* s = &m->surfaces[i];
+
+			//ignores brushes that have no texture and where lightmaps were not applied
+			//if (s->flags & (SURF_NOTEXTURE)) {
+			//	continue;
+			//}
+
+			//// ignores submodels, needed submodels will be loaded in as entities
+			//if (s->bmodelindex > 0) {
+			//	continue;
+			//}
+
 			numverts += m->surfaces[i].numedges;
-			numindices += m->surfaces[i].numedges - 1;
+			numindices += m->surfaces[i].numedges - 2;
+
+			// add texture_index and material number (future use)
+			int tx_imageview_index = s->texinfo->texture->gltexture ? s->texinfo->texture->gltexture->heap_node_index : -1;
+			int fb_imageview_index = s->texinfo->texture->fullbright ? s->texinfo->texture->fullbright->heap_node_index : -1;
+
+			if (fb_imageview_index != -1) { 
+				numlightprimitives += m->surfaces[i].numedges - 2;
+			}
+			
 		}
 	}
 
@@ -740,7 +769,19 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 	iarray_bytes = sizeof(uint16_t) * numindices;
 	iarray = (uint16_t*)malloc(iarray_bytes);
 
+	// build primitive index array for light entities
+	light_array_bytes = sizeof(uint32_t) * 10000;
+	light_primitives_index_array = (uint32_t*)malloc(light_array_bytes);
+
+	// build vertex array containing emissive vertices
+	numindices = (numindices / 3);
+	primitive_array_bytes = sizeof(rt_primitive_t) * numindices;
+	primitive_array = (byte*)malloc(primitive_array_bytes);
+
+
 	numindices = 0;
+	numprimitives = 0;
+	numlightprimitives = 0;
 
 	for (j=1 ; j<MAX_MODELS ; j++)
 	{
@@ -754,80 +795,139 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 			msurface_t *s = &m->surfaces[i];
 			int first_vert = s->vbo_firstvert;
 
-			rt_vertex_t* rt_verts = (rt_vertex_t*)malloc(sizeof(rt_vertex_t) * s->numedges);
+			rt_vertex_t* rt_verts = (rt_vertex_t*) malloc (sizeof(rt_vertex_t) * s->numedges);
+			rt_primitive_t* rt_primitives = (rt_primitive_t*) malloc (sizeof(rt_primitive_t) * (s->numedges - 2));
 
 			// add texture_index and material number (future use)
 			int tx_imageview_index = -1;
 			int fb_imageview_index = -1;
 
 			if (s->texinfo->texture->gltexture) {
-				glheapnode_t* txheapnode = s->texinfo->texture->gltexture->heap_node;
+				glheapnode_t* heapnode = s->texinfo->texture->gltexture->heap_node;
 
-				while (txheapnode->prev != NULL) {
-					txheapnode = txheapnode->prev;
+				while (heapnode->prev != NULL) {
+					heapnode = heapnode->prev;
 					tx_imageview_index++;
 				}
 			}
 
 			if (s->texinfo->texture->fullbright) {
-				glheapnode_t* fbheapnode = s->texinfo->texture->fullbright->heap_node;
+				glheapnode_t* heapnode = s->texinfo->texture->fullbright->heap_node;
 
-				while (fbheapnode->prev != NULL) {
-					fbheapnode = fbheapnode->prev;
+				while (heapnode->prev != NULL) {
+					heapnode = heapnode->prev;
 					fb_imageview_index++;
 				}
 			}
 
-			// fullbright textures are considered emissive materials
-			if (fb_imageview_index != -1) {
-				material = 1; // index for emissive
-			}
+			//// skybox is considered emissive as well
+			//if (s->flags & (SURF_DRAWSKY)) {
+			//	material = 2; // index for skylight
+			//	continue;
+			//}
 
-			// skybox is considered emissive as well
-			if (s->flags & (SURF_DRAWSKY)) {
-				material = 2; // index for skylight
-				//continue;
-			}
+			/*if (fb_imageview_index == -1) {
+				continue;
+			}*/
 
 			// copy verts data to rt_verts (they are identical) and add texture indices and material index
 			for (int k = 0; k < s->numedges; k++) {
 
+				// vertex world position
 				rt_verts[k].vertex_pos[0] = s->polys->verts[k][0];
 				rt_verts[k].vertex_pos[1] = s->polys->verts[k][1];
 				rt_verts[k].vertex_pos[2] = s->polys->verts[k][2];
+
+				// texture coordinates
 				rt_verts[k].vertex_tx_coords[0] = s->polys->verts[k][3];
 				rt_verts[k].vertex_tx_coords[1] = s->polys->verts[k][4];
+
+				// texture coordinates fullbright
 				rt_verts[k].vertex_fb_coords[0] = s->polys->verts[k][5];
 				rt_verts[k].vertex_fb_coords[1] = s->polys->verts[k][6];
-
-				rt_verts[k].tx_index = tx_imageview_index;
-				rt_verts[k].fb_index = fb_imageview_index;
-				rt_verts[k].material_index = material;	// future use
 			}
 
 			memcpy(&varray[sizeof(rt_vertex_t) * first_vert], rt_verts, sizeof(rt_vertex_t) * s->numedges);
+			//free(rt_verts);
 
-			// ignores brushes that have no texture and where lightmaps were not applied
-			if (s->flags & (SURF_NOTEXTURE)) {
-				continue;
+			bool ignoreIndices = (s->flags & (SURF_NOTEXTURE) || s->bmodelindex > 0);
+
+			uint16_t firstvert = (uint16_t)first_vert;
+			for (int k = 2; k < s->numedges; k++) {
+				if (!ignoreIndices) {
+					iarray[numindices++] = firstvert;
+					iarray[numindices++] = firstvert + k - 1;
+					iarray[numindices++] = firstvert + k;
+				}
+
+				// calculates primitive data
+				int index = k - 2;
+
+				// texture indices
+				rt_primitives[index].tx_index = tx_imageview_index;
+				rt_primitives[index].fb_index = fb_imageview_index;
+				rt_primitives[index].material_index = material;
+
+				// geometric normal of light triangle
+				rt_vertex_t verts[3] = { rt_verts[0], rt_verts[k - 1], rt_verts[k] };
+
+				vec3_t lv1 = { verts[0].vertex_pos[0], verts[0].vertex_pos[1], verts[0].vertex_pos[2] };
+				vec3_t lv2 = { verts[1].vertex_pos[0], verts[1].vertex_pos[1], verts[1].vertex_pos[2] };
+				vec3_t lv3 = { verts[2].vertex_pos[0], verts[2].vertex_pos[1], verts[2].vertex_pos[2] };
+
+				vec3_t lv2mlv1; _VectorSubtract(lv2, lv1, lv2mlv1);
+				vec3_t lv3mlv1; _VectorSubtract(lv3, lv1, lv3mlv1);
+				vec3_t lv3mlv2; _VectorSubtract(lv3, lv2, lv3mlv2);
+
+				vec3_t lightNormal; CrossProduct(lv2mlv1, lv3mlv1, lightNormal);
+				VectorNormalize(lightNormal);
+
+				rt_primitives[index].geometric_normal[0] = lightNormal[0];
+				rt_primitives[index].geometric_normal[1] = lightNormal[1];
+				rt_primitives[index].geometric_normal[2] = lightNormal[2];
+
+				// triangle area
+				float a = VectorLength(lv2mlv1);
+				float b = VectorLength(lv3mlv1);
+				float c = VectorLength(lv3mlv2);
+
+				float triangleArea = abs(0.25f * sqrt((a + b + c) * (-a + b + c) * (a - b + c) * (a + b - c)));
+				rt_primitives[index].total_triangle_area = triangleArea;
+
+				if (fb_imageview_index != -1) {
+
+					// brightest perceived color
+					rt_primitives[index].brightest_perceived_light_color[0] = s->texinfo->texture->fullbright->brightest_color[0];
+					rt_primitives[index].brightest_perceived_light_color[1] = s->texinfo->texture->fullbright->brightest_color[1];
+					rt_primitives[index].brightest_perceived_light_color[2] = s->texinfo->texture->fullbright->brightest_color[2];
+
+					// light area percentage
+					rt_primitives[index].light_area_percentage = 0.0f;
+
+					//rt_primitives[index].isLight = true;
+				}
+				else {
+					rt_primitives[index].brightest_perceived_light_color[0] = 0;
+					rt_primitives[index].brightest_perceived_light_color[1] = 0;
+					rt_primitives[index].brightest_perceived_light_color[2] = 0;
+
+					rt_primitives[index].light_area_percentage = 0.0f;
+
+					//rt_primitives[index].isLight = false;
+				}
 			}
 
-			// ignores submodels, needed submodels will be loaded in as entities
-			if (s->bmodelindex > 0) {
-				continue;
-			}
+			s->vbo_numprimitives = numprimitives;
 
-			for (int k = 0; k < s->numedges; k++) {
-				iarray[numindices + (k * 3 + 0)] = (uint16_t)first_vert;
-				iarray[numindices + (k * 3 + 1)] = (uint16_t)first_vert + k + 1;
-				iarray[numindices + (k * 3 + 2)] = (uint16_t)first_vert + k;
-			}
+			memcpy(&primitive_array[sizeof(rt_primitive_t) * numprimitives], rt_primitives, sizeof(rt_primitive_t) * (s->numedges - 2));
+			numprimitives += s->numedges - 2;
+			//free(rt_primitives);
 
-			numindices += (s->numedges - 1) * 3;
 		}
 	}
 
-	// Allocate vertex buffer
+	// Vertex buffer allocation
+
 	BufferResource_t rt_vert_buff_resource;
 	buffer_create(&rt_vert_buff_resource, varray_bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
 		| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
@@ -867,7 +967,8 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 	// num of indices may have changed while traversing
 	iarray_bytes = sizeof(uint16_t) * numindices;
 
-	// Allocate index buffer
+	// Index buffer allocation 
+
 	BufferResource_t rt_ind_buff_resource;
 	buffer_create(&rt_ind_buff_resource, iarray_bytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
 		| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
@@ -906,6 +1007,95 @@ void GL_BuildBModelRTVertexAndIndexBuffer (void)
 	}
 
 	free(iarray);
+
+	// primitives allocation
+
+	BufferResource_t rt_light_primitive_buff_resource;
+	buffer_create(&rt_light_primitive_buff_resource, primitive_array_bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	GL_SetObjectName((uint64_t)rt_light_primitive_buff_resource.buffer, VK_OBJECT_TYPE_BUFFER, "Brush Light Primitive Buffer RT");
+	GL_SetObjectName((uint64_t)rt_light_primitive_buff_resource.memory, VK_OBJECT_TYPE_DEVICE_MEMORY, "Brush Light Primitive Memory RT");
+
+	vulkan_globals.rt_static_primitive_buffer_resource = rt_light_primitive_buff_resource;
+	vulkan_globals.rt_static_primitive_count = numprimitives;
+
+	remaining_size = primitive_array_bytes;
+	copy_offset = 0;
+
+	while (remaining_size > 0)
+	{
+		const int size_to_copy = q_min(remaining_size, vulkan_globals.staging_buffer_size);
+		VkBuffer staging_buffer;
+		VkCommandBuffer command_buffer;
+		int staging_offset;
+		unsigned char* staging_memory = R_StagingAllocate(size_to_copy, 1, &command_buffer, &staging_buffer, &staging_offset);
+
+		memcpy(staging_memory, (byte*)primitive_array + copy_offset, size_to_copy);
+
+		VkBufferCopy region;
+		region.srcOffset = staging_offset;
+		region.dstOffset = copy_offset;
+		region.size = size_to_copy;
+		vkCmdCopyBuffer(command_buffer, staging_buffer, vulkan_globals.rt_static_primitive_buffer_resource.buffer, 1, &region);
+
+		copy_offset += size_to_copy;
+		remaining_size -= size_to_copy;
+	}
+
+	free(primitive_array);
+
+	// light primitive indices
+
+	/*BufferResource_t rt_light_indices_buffer_resource;
+	buffer_create(&rt_light_indices_buffer_resource, numlightprimitives * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+		| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+
+	vulkan_globals.rt_static_index_buffer = rt_light_indices_buffer_resource.buffer;
+	GL_SetObjectName((uint64_t)vulkan_globals.rt_static_index_buffer, VK_OBJECT_TYPE_BUFFER, "Brush Light Index Buffer RT");
+
+	vulkan_globals.rt_static_index_memory = rt_light_indices_buffer_resource.memory;
+	GL_SetObjectName((uint64_t)vulkan_globals.rt_static_index_memory, VK_OBJECT_TYPE_DEVICE_MEMORY, "Brush Light Index Memory RT");
+
+	vulkan_globals.rt_light_data.light_count = numlightprimitives;
+
+	remaining_size = iarray_bytes;
+	copy_offset = 0;
+
+	while (remaining_size > 0)
+	{
+		const int size_to_copy = q_min(remaining_size, vulkan_globals.staging_buffer_size);
+		VkBuffer staging_buffer;
+		VkCommandBuffer command_buffer;
+		int staging_offset;
+		unsigned char* staging_memory = R_StagingAllocate(size_to_copy, 1, &command_buffer, &staging_buffer, &staging_offset);
+
+		memcpy(staging_memory, (byte*)iarray + copy_offset, size_to_copy);
+
+		VkBufferCopy region;
+		region.srcOffset = staging_offset;
+		region.dstOffset = copy_offset;
+		region.size = size_to_copy;
+		vkCmdCopyBuffer(command_buffer, staging_buffer, vulkan_globals.rt_static_index_buffer, 1, &region);
+
+		copy_offset += size_to_copy;
+		remaining_size -= size_to_copy;
+	}
+
+	free(iarray);
+
+
+	VkBuffer dynamic_index_buffer;
+	VkDeviceSize dynamic_index_buffer_offset;
+	uint32_t* indices = (uint32_t*) R_IndexAllocate(numlightprimitives * sizeof(uint32_t), &dynamic_index_buffer, &dynamic_index_buffer_offset);
+	memcpy(indices, light_primitives_index_array, numlightprimitives * sizeof(uint32_t));
+
+	vulkan_globals.rt_light_data.light_buffer_offset = dynamic_index_buffer_offset;
+	vulkan_globals.rt_light_data.light_count += numlightprimitives;
+
+	free(light_primitives_index_array);*/
 }
 
 /*
@@ -958,8 +1148,6 @@ void GL_BuildBModelVertexBuffer (void)
 			varray_index += s->numedges;
 		}
 	}
-
-	
 
 	// Allocate & upload to GPU
 	VkResult err;

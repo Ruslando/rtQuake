@@ -1,25 +1,72 @@
 #version 460
 #extension GL_EXT_ray_tracing : require
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_debug_printf : enable
+#extension GL_EXT_scalar_block_layout : enable
 
-struct HitPayload
+// local structs
+struct RayClosestHitPayload
 {
-	uint sampleCount;
-    vec3 contribution;
-    vec3 origin;
-    vec3 direction;
-    bool done;
+	bool rayHit;
+	int primitiveId;
+	int instanceId;
+	vec2 hitCoordinates;
+	vec3 barycentrics;
+	float rayHitDistance;
 };
 
-layout(location = 0) rayPayloadEXT HitPayload hitPayload;
+struct Primitive{
+	int txIndex;
+	int fbIndex;
+	int materialIndex;
+	float totalTriangleArea;
+	float lightAreaPercentage;
+	vec3 geometricNormal;
+	vec3 brightestPerceivedLightColor;
+};
+
+struct Vertex{
+	vec3 vertex_pos;
+	vec2 vertex_tx;
+	vec2 vertex_fb;
+};
+
+struct CDF_LightStruct{
+	float summedLuminance;
+	int fbIndex;
+	vec3 positionToLightVector;
+	uvec3 indices;
+	int instanceId;
+	vec3 lightValue;
+};
+
+layout(location = 0) rayPayloadEXT RayClosestHitPayload rayClosestHitPayload;
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
 layout(set = 0, binding = 1, rgba32f) uniform image2D image;
 layout(set = 0, binding = 2) uniform FrameData {
-	uint maxDepth;
-	uint maxSamples;
 	uint frame;
+	uint numDynamicIndices;
+	uint numStaticIndices;
+	uint numDynamicLightPrimitives;
+	uint numStaticLightPrimitives;
+	uint numDynamicLightSurfaces;
+	uint numStaticLightSurfaces;
 } frameData;
+
+layout(scalar, set = 0, binding = 3) readonly buffer StaticVertexBuffer {Vertex[] sv;} staticVertexBuffer;
+layout(scalar, set = 0, binding = 4) readonly buffer DynamicVertexBuffer {Vertex[] dv;} dynamicVertexBuffer;
+layout(scalar, set = 0, binding = 5) readonly buffer StaticIndexBuffer {uint16_t[] si;} staticIndexBuffer;
+layout(scalar, set = 0, binding = 6) readonly buffer DynamicIndexBuffer {uint32_t[] di;} dynamicIndexBuffer;
+layout(scalar, set = 0, binding = 7) readonly buffer StaticPrimitiveBuffer {Primitive[] sp;} staticPrimitiveBuffer;
+layout(scalar, set = 0, binding = 8) readonly buffer DynamicPrimitiveBuffer {Primitive[] dp;} dynamicPrimitiveBuffer;
+layout(set = 0, binding = 9) uniform sampler2D textures[];
+layout(scalar, set = 0, binding = 10) readonly buffer StaticLightPrimitiveIndexBuffer {uint32_t[] sli;} staticLightPrimitiveIndexBuffer;
+layout(scalar, set = 0, binding = 11) readonly buffer DynamicLightPrimitiveIndexBuffer {uint32_t[] dli;} dynamicLightPrimitiveIndexBuffer;
+layout(scalar, set = 0, binding = 12) readonly buffer StaticLightSurfaceIndexBuffer {uint32_t[] sls;} staticLightSurfaceIndexBuffer;
+layout(scalar, set = 0, binding = 13) readonly buffer DynamicLightSurfaceIndexBuffer {uint32_t[] dls;} dynamicLightSurfaceIndexBuffer;
 
 
 layout(push_constant) uniform UniformData {
@@ -28,6 +75,16 @@ layout(push_constant) uniform UniformData {
 } uniformData;
 
 // Functions
+
+void initializeRayClosestHitPayload()
+{
+	rayClosestHitPayload.rayHit = false;
+	rayClosestHitPayload.primitiveId = -1;
+	rayClosestHitPayload.instanceId = -1;
+	rayClosestHitPayload.hitCoordinates = vec2(0);
+	rayClosestHitPayload.barycentrics = vec3(0);
+	rayClosestHitPayload.rayHitDistance = -1.0f;
+}
 
 uint pcg(inout uint state)
 {
@@ -60,71 +117,445 @@ float rand(inout uint seed)
     return (float(val) * (1.0 / float(0xffffffffu)));
 }
 
+Primitive getPrimitive(uint primitiveId, uint instanceId){
+	if(instanceId == 0){
+		return staticPrimitiveBuffer.sp[primitiveId];
+	}
+	if(instanceId == 1){
+		return dynamicPrimitiveBuffer.dp[primitiveId];
+	}
+}
+
+Vertex getVertex(uint index, uint instanceId){
+	if(instanceId == 0){
+		return staticVertexBuffer.sv[index];
+	}
+	else{
+		return dynamicVertexBuffer.dv[index];
+	}
+}
+
+uvec3 getIndices(uint primitiveId, uint instanceId){
+	uint primitive_index = primitiveId * 3;
+
+	if(instanceId == 0){
+		return uvec3(staticIndexBuffer.si[primitive_index],
+		staticIndexBuffer.si[primitive_index + 1],
+		staticIndexBuffer.si[primitive_index + 2]);
+	}
+	else{
+		return uvec3(dynamicIndexBuffer.di[primitive_index],
+		dynamicIndexBuffer.di[primitive_index + 1],
+		dynamicIndexBuffer.di[primitive_index + 2]);
+	}
+}
+
+uint getRandomLightPrimitiveIndex(inout uint seed, uint instanceId)
+{	
+	float random = rand(seed);
+
+	if(instanceId == 0){
+		int numSurfaces = int(frameData.numStaticLightSurfaces);
+		int index = int(random * (numSurfaces));
+
+		uint primitiveSurfaceEnd = staticLightSurfaceIndexBuffer.sls[index];
+		uint primitiveSurfaceStart = 0;
+		if(index != 0){
+			primitiveSurfaceStart = staticLightSurfaceIndexBuffer.sls[index - 1];
+		}
+
+		uint numPrimitivesForSurface = primitiveSurfaceEnd - primitiveSurfaceStart;
+
+		random = rand(seed);
+
+		uint resval = primitiveSurfaceStart + uint(random * numPrimitivesForSurface);
+		return staticLightPrimitiveIndexBuffer.sli[resval];
+	}
+	else{
+
+		int numSurfaces = int(frameData.numDynamicLightSurfaces);
+		int index = min(int(random * (numSurfaces)), numSurfaces - 1);
+
+		uint primitiveSurfaceEnd = dynamicLightSurfaceIndexBuffer.dls[index];
+		uint primitiveSurfaceStart = 0;
+		if(index != 0){
+			primitiveSurfaceStart = dynamicLightSurfaceIndexBuffer.dls[index - 1];
+		}
+		uint numPrimitivesForSurface = primitiveSurfaceEnd - primitiveSurfaceStart;
+
+		random = rand(seed);
+
+		uint resval = primitiveSurfaceStart + uint(random * numPrimitivesForSurface);
+		return dynamicLightPrimitiveIndexBuffer.dli[resval];
+	}
+	
+}
+
+void texCoordsToNormalizedValues(inout vec2 vtx1, inout vec2 vtx2, inout vec2 vtx3){
+	abs(vtx1); abs(vtx2); abs(vtx3);
+
+	float minX = min(min(vtx1.x, vtx2.x), vtx3.x) * -1;
+	float minY = min(min(vtx1.y, vtx2.y), vtx3.y) * -1;
+
+	vtx1.x += minX; vtx2.x += minX; vtx3.x += minX;
+	vtx1.y += minY; vtx2.y += minY; vtx3.y += minY;
+}
+
+bool checkPointInsideTriangle(vec2 tex_coords1, vec2 tex_coords2, vec2 tex_coords3, vec2 point_coords){
+	vec2 v1 = tex_coords2 - tex_coords1;
+	vec2 v2 = tex_coords3 - tex_coords1;
+
+	float denominator = determinant(mat2(v1, v2));
+
+	float a = (determinant(mat2(point_coords, v2)) -  determinant(mat2(tex_coords1, v2))) / denominator;
+	float b = -(determinant(mat2(point_coords, v1)) -  determinant(mat2(tex_coords1, v1))) / denominator;
+
+	return (a > 0 && b > 0 && a+b < 1) ? true : false;
+}
+
+vec2 centerValueToPixelGrid(vec2 coords, float gridIncrementX, float gridIncrementY, bool inclusive){
+	float minX = float(floor(coords.x / gridIncrementX) * gridIncrementX);
+	float minY = float(floor(coords.y / gridIncrementY) * gridIncrementY);
+
+	vec2 retval = vec2(minX + (gridIncrementX / 2.0f), minY - (gridIncrementY / 2.0f));
+	if (inclusive){
+		retval.x -= gridIncrementX;
+		retval.y += gridIncrementY;
+	}
+
+	return retval;
+}
+
+vec3 computeBarycentric(vec2 a, vec2 b, vec2 c, vec2 p){
+	// https://gamedev.stackexchange.com/questions/23743/whats-the-most-efficient-way-to-find-barycentric-coordinates
+	// Compute barycentric coordinates (u, v, w) for
+	// point p with respect to triangle (a, b, c)
+	vec2 v0 = b - a; vec2 v1 = c - a; vec2 v2 = p - a;
+	float d00 = dot(v0, v0);
+	float d01 = dot(v0, v1);
+	float d11 = dot(v1, v1);
+	float d20 = dot(v2, v0);
+	float d21 = dot(v2, v1);
+	float denom = d00 * d11 - d01 * d01;
+
+	float v = (d11 * d20 - d01 * d21) / denom;
+    float w = (d00 * d21 - d01 * d20) / denom;
+    float u = 1.0f - v - w;
+
+	return vec3(u, v, w);
+}
+
+float getTriangleAreaVec2(vec2 p1, vec2 p2, vec2 p3){
+	return abs(0.5 * (p1.x*(p2.y - p3.y) + p2.x*(p3.y - p1.y) + p3.x*(p1.y - p2.y)));
+}
+
+float getTriangleAreaVec3(vec3 p1, vec3 p2, vec3 p3){
+	float a = distance(p1, p2);
+	float b = distance(p1, p3);
+	float c = distance(p2, p3);
+
+	return abs(0.25 * sqrt((a + b + c) * (-a + b + c) * (a - b + c) * (a + b - c)));
+}
+
+const highp float M_PI = 3.14159265358979323846;
+
 void main()
 {
 	uint  rayFlags = gl_RayFlagsOpaqueEXT;
 	float tMin     = 0.001;
-	float tMax     = 10000.0;
-	uint maxDepth = frameData.maxDepth;
-	uint maxSamples = frameData.maxSamples;
+	float tMax     = 100000.0;
 	vec3 summedPixelColor = vec3(0.0);
 	
-	for(uint sampleCount = 0; sampleCount < maxSamples; sampleCount++){
-		uvec2 s = pcg2d(ivec2(gl_LaunchIDEXT.xy) * (sampleCount + frameData.frame));
-        uint seed = s.x + s.y;
+	uvec2 s = pcg2d(ivec2(gl_LaunchIDEXT.xy) * (frameData.frame));
+    uint seed = s.x + s.y;
 		
-		const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(rand(seed), rand(seed));
-		const vec2 inUV        = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
-		vec2       d           = inUV * 2.0 - 1.0;
+	const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(rand(seed), rand(seed));
+	const vec2 inUV        = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
+	vec2       d           = inUV * 2.0 - 1.0;
 		
-		vec4 origin    = uniformData.view_inverse * vec4(0, 0, 0, 1);
-		vec4 target    = uniformData.proj_inverse * vec4(d.x, d.y, 1, 1);
-		vec4 direction = uniformData.view_inverse * vec4(normalize(target.xyz), 0);
-		
-		uint depth;
+	vec4 origin    = uniformData.view_inverse * vec4(0, 0, 0, 1);
+	vec4 target    = uniformData.proj_inverse * vec4(d.x, d.y, 1, 1);
+	vec4 direction = uniformData.view_inverse * vec4(normalize(target.xyz), 0);
+	
+	// sets closest hit payload to null
+	initializeRayClosestHitPayload();
 
-		hitPayload.sampleCount = sampleCount;
-		hitPayload.contribution = vec3(1.0);
-        hitPayload.done = false;
-		
-		for(depth = 0; depth < maxDepth; depth++){
-			traceRayEXT(
-				topLevelAS,     // acceleration structure
-				rayFlags,       // rayFlags
-				0xFF,           // cullMask
-				0,              // sbtRecordOffset
-				0,              // sbtRecordStride
-				0,              // missIndex
-				origin.xyz,     // ray origin
-				tMin,           // ray min range
-				direction.xyz,  // ray direction
-				tMax,           // ray max range
-				0               // hitPayload (location = 0)
-			);
-			if(hitPayload.done){
-				break;
-			}
-			
-			direction = vec4(hitPayload.direction, 0);
-			origin = vec4(hitPayload.origin, 1);
+	// Primary rays
+	traceRayEXT(
+		topLevelAS,     // acceleration structure
+		rayFlags,       // rayFlags
+		0xFF,           // cullMask
+		0,              // sbtRecordOffset
+		0,              // sbtRecordStride
+		0,              // missIndex
+		origin.xyz,     // ray origin
+		tMin,           // ray min range
+		direction.xyz,  // ray direction
+		tMax,           // ray max range
+		0               // hitPayload (location = 0)
+	);
+
+	uvec3 indices = getIndices(rayClosestHitPayload.primitiveId, rayClosestHitPayload.instanceId);
+	
+	Vertex v1 = getVertex(indices.x, rayClosestHitPayload.instanceId);
+	Vertex v2 = getVertex(indices.y, rayClosestHitPayload.instanceId);
+	Vertex v3 = getVertex(indices.z, rayClosestHitPayload.instanceId);
+
+	Primitive p1 = getPrimitive(rayClosestHitPayload.primitiveId, rayClosestHitPayload.instanceId);
+
+	vec3 barycentrics = rayClosestHitPayload.barycentrics;
+	vec3 position = v1.vertex_pos * barycentrics.x + v2.vertex_pos * barycentrics.y + v3.vertex_pos * barycentrics.z;
+
+	vec3 geometricNormal = p1.geometricNormal;
+
+	position -= 0.1 * geometricNormal.xyz;
+
+	vec2 tex_coords = v1.vertex_tx * barycentrics.x + v2.vertex_tx * barycentrics.y + v3.vertex_tx * barycentrics.z;
+
+	vec4 txcolor = vec4(0.0);
+	vec4 fbcolor = vec4(0.0);
+
+	if(p1.txIndex != -1){
+		txcolor = texture(textures[p1.txIndex], tex_coords); // regular texture
+	}
+
+	if(p1.fbIndex != -1){
+		fbcolor = texture(textures[p1.fbIndex], tex_coords); // fullbright texture
+	}
+
+	bool isLightSource = false;
+
+	if(p1.materialIndex == 0){
+		summedPixelColor += txcolor.xyz * (1 / 16);
+//		summedPixelColor += txcolor.xyz;
+	}
+
+
+	if(p1.materialIndex == 1){
+		isLightSource = fbcolor.x * 0.2126 + fbcolor.y * 0.7152 + fbcolor.z * 0.0722 > 0.05;
+		if(isLightSource){
+			summedPixelColor += fbcolor.xyz;
+			//summedPixelColor += vec3(0,0,1);
 		}
-		
-		// for controlling the different contribution layers
-		// (depth 0 = only emitting light, depth 1 = direct light
-		// depth 2 = indirect light first bounce, depth 3 = indirect light second bounce
-//		if(hitPayload.done == true && depth == 2){
-//			summedPixelColor += hitPayload.contribution;
-//		}
-		
-		// does not contribute if ray path has not hit a light
-		// this is needed because right now, the miss shader acts as the sky light emitting white
-		// light. so a miss is not necessary a miss, but only if it has not hit any real light source
-		if(hitPayload.done == true){
-			summedPixelColor += hitPayload.contribution;
+		else{
+			summedPixelColor += txcolor.xyz * (1 / 16);
+//			summedPixelColor += txcolor.xyz;
 		}
 	}
+
+//	if(rayClosestHitPayload.instanceId == 1){
+//		debugPrintfEXT("txindex %i, fbindex %i, material %i, triarea %f, lighpercentage %f, normal %v3f, color %v3f", p1.txIndex, p1.fbIndex, p1.materialIndex,
+//		p1.totalTriangleArea, p1.lightAreaPercentage, p1.geometricNormal, p1.brightestPerceivedLightColor);
+//	}
 	
-	summedPixelColor /= maxSamples;
+
+//	if(p1.materialIndex == 2){
+//		summedPixelColor += vec3(1);
+//		isLightSource = true;
+//	}
 	
+	int numLightSurfaces = int(frameData.numStaticLightSurfaces + frameData.numDynamicLightSurfaces);
+	float staticSurfaceRatio = 0;
+	if(numLightSurfaces != 0){
+		staticSurfaceRatio = frameData.numStaticLightSurfaces  / (frameData.numStaticLightSurfaces + frameData.numDynamicLightSurfaces);
+	}
+
+	if(!isLightSource && numLightSurfaces > 0){
+
+		const int maxLightSampleNumber = 8;
+
+		int lightSampleNumber = int((frameData.numStaticLightSurfaces + frameData.numDynamicLightSurfaces ) / 8.0f);
+		lightSampleNumber = max(1, min(lightSampleNumber, maxLightSampleNumber));
+		int sampledLightTriangles = 0;
+
+		CDF_LightStruct lightCandidates[maxLightSampleNumber];
+
+		while(sampledLightTriangles < lightSampleNumber)
+		{	
+			
+			int staticOrDynamic = round(rand(seed)) > staticSurfaceRatio ? 1 : 0;
+//			int staticOrDynamic = 1;
+
+			uint primitiveIndex = getRandomLightPrimitiveIndex(seed, staticOrDynamic);
+
+			uvec3 lvi = getIndices(primitiveIndex, staticOrDynamic);
+			Primitive lp1 = getPrimitive(primitiveIndex, staticOrDynamic); // 0 = static models
+
+
+//			debugPrintfEXT("fbIndex: %i, materialIndex: %i, totalTriangleArea: %f, indices: %v3i", lp1.fbIndex, lp1.materialIndex, lp1.totalTriangleArea, lp1.indices);
+
+			// gets all vertices from triangle
+			Vertex lv1 = getVertex(lvi.x, staticOrDynamic);
+			Vertex lv2 = getVertex(lvi.y, staticOrDynamic);
+			Vertex lv3 = getVertex(lvi.z, staticOrDynamic);
+
+//
+//			float triangleLocalArea = getTriangleAreaVec2(lv1.vertex_tx, lv2.vertex_tx, lv3.vertex_tx);
+//			float triangleArea = getTriangleAreaVec3(lv1.vertex_pos, lv2.vertex_pos, lv3.vertex_pos);
+
+//			if(triangleLocalArea == 0){
+//				continue;
+//			}
+
+			float triangleArea = lp1.totalTriangleArea;
+			float lightAreaPercentage = lp1.lightAreaPercentage;
+			//debugPrintfEXT("triangleArea: %f, ", triangleArea);
+
+			if(triangleArea == 0){
+				continue;
+			}
+
+//			int lod = 3;
+//			float lodf = lod * 1.0f;
+//
+//			ivec2 texture_size = textureSize(textures[lv1.fb_index], lod);
+//			
+//			float maxX = max(lv1.vertex_tx.x, max(lv2.vertex_tx.x, lv3.vertex_tx.x));
+//			float minX = min(lv1.vertex_tx.x, min(lv2.vertex_tx.x, lv3.vertex_tx.x));
+//			float maxY = max(lv1.vertex_tx.y, max(lv2.vertex_tx.y, lv3.vertex_tx.y));
+//			float minY = min(lv1.vertex_tx.y, min(lv2.vertex_tx.y, lv3.vertex_tx.y));
+//			
+//			float incrementX = 1.0f / texture_size.x;
+//			float incrementY = 1.0f / texture_size.y;
+//			
+//			vec2 startValue = centerValueToPixelGrid(vec2(minX, maxY), incrementX, incrementY, false);
+//			vec2 endValue = centerValueToPixelGrid(vec2(maxX, minY), incrementX, incrementY, true);
+//				
+//			vec2 texels[1024];
+//			int lightTexels = 0;
+//			
+//			for(float x = startValue.x; x <= endValue.x; x += incrementX){
+//				for(float y = startValue.y; y >= endValue.y; y -= incrementY){
+//					if(lightTexels == 4096){
+//						break;
+//					}
+//					vec2 coords = vec2(x, y);
+//					vec4 lightColor = textureLod(textures[lv1.fb_index], coords, lodf);
+//					if(lightColor.x * 0.2126 + lightColor.y * 0.7152 + lightColor.z * 0.0722 > 0.05f){
+//						if(checkPointInsideTriangle(lv1.vertex_tx, lv2.vertex_tx, lv3.vertex_tx, coords)){
+//							texels[lightTexels] = coords;
+//							lightTexels++;
+//
+//							vec3 colorBarycentrics = computeBarycentric(lv1.vertex_tx, lv2.vertex_tx, lv3.vertex_tx, coords);
+//							vec2 colorCoordinatesEEE = lv1.vertex_tx * colorBarycentrics.x + lv2.vertex_tx * colorBarycentrics.y + lv3.vertex_tx * colorBarycentrics.z;
+//						}
+//					}
+//				}
+//			}
+//
+//			if(lightTexels == 0){
+//				continue;
+//			}
+//			
+//			int triangleTexels = int(triangleLocalArea * (texture_size.x * texture_size.y));
+//			float lightRatio = lightTexels * 1.0f / triangleTexels * 1.0f;
+//
+//			rend = rand(seed);
+//			int randomTexel = int(rend * (lightTexels - 1));
+//
+//			vec2 colorCoordinates = texels[randomTexel];
+//			vec3 colorBarycentrics = computeBarycentric(lv1.vertex_tx, lv2.vertex_tx, lv3.vertex_tx, colorCoordinates);
+//
+//			vec4 lightcolor = textureLod(textures[lv1.fb_index], colorCoordinates, lodf); // fullbright texture
+//
+//			vec3 lightNormal = normalize(cross(lv2.vertex_pos - lv1.vertex_pos, lv3.vertex_pos - lv1.vertex_pos));
+//			vec3 tricenter = lv1.vertex_pos * colorBarycentrics.x + lv2.vertex_pos * colorBarycentrics.y + lv3.vertex_pos * colorBarycentrics.z;
+//			vec3 surfToTriangleVector =  normalize(tricenter - position);
+			
+			float rend1 = rand(seed);
+			float rend2 = rend1 * rand(seed);
+			float rend3 = 1 - rend1 - rend2;
+
+			vec3 colorBarycentrics = vec3(rend1, rend2, rend3);
+			vec3 lightNormal = lp1.geometricNormal;
+//			vec3 lightNormal2 = normalize(cross(lv2.vertex_pos - lv1.vertex_pos, lv3.vertex_pos - lv1.vertex_pos));
+//
+//			debugPrintfEXT("lightNormal: %v3f, lightNormal2: %v3f", lightNormal, lightNormal2);
+
+			vec3 lightColor = lp1.brightestPerceivedLightColor;
+			vec3 tricenter = lv1.vertex_pos * colorBarycentrics.x + lv2.vertex_pos * colorBarycentrics.y + lv3.vertex_pos * colorBarycentrics.z;
+			vec3 surfToTriangleVector =  normalize(tricenter - position);
+
+			float P_light = dot(lightNormal, surfToTriangleVector * -1) / (distance(tricenter, position) * distance(tricenter, position));
+			vec3 lightValue = lightColor.xyz * dot(geometricNormal, surfToTriangleVector) * P_light * triangleArea * lightAreaPercentage;
+			float luminance = abs(lightValue.x * 0.2126f + lightValue.y * 0.7152f + lightValue.z * 0.0722f);
+
+//			
+//			float P_light = dot(lightNormal, surfToTriangleVector * -1) / (distance(tricenter, position) * distance(tricenter, position));
+//			vec3 lightValue = lightcolor.xyz * dot(geometricNormal, surfToTriangleVector) * P_light * (triangleArea * lightRatio);
+//
+//			float luminance = abs(lightValue.x * 0.2126f + lightValue.y * 0.7152f + lightValue.z * 0.0722f);
+//
+			CDF_LightStruct lightStruct;
+			
+			if(sampledLightTriangles == 0){
+				lightStruct.summedLuminance = luminance;
+			}
+			else{
+				lightStruct.summedLuminance = lightCandidates[sampledLightTriangles - 1].summedLuminance + luminance;
+			}
+
+			lightStruct.fbIndex = lp1.fbIndex;
+			lightStruct.positionToLightVector = surfToTriangleVector;
+			lightStruct.indices = lvi;
+			lightStruct.instanceId = 0;
+			lightStruct.lightValue = lightValue;
+
+			lightCandidates[sampledLightTriangles] = lightStruct;
+
+			sampledLightTriangles++;
+		}
+
+		float randomSampleLightPoint = rand(seed) * lightCandidates[lightSampleNumber - 1].summedLuminance;
+		int selectedLightSample = 0;
+		
+		for(int i = 0; i < lightSampleNumber; i++){
+			float prevSum = 0.0f;
+			if(i != 0){ prevSum = lightCandidates[i - 1].summedLuminance;}
+		
+			if(randomSampleLightPoint >= prevSum && randomSampleLightPoint <= lightCandidates[i].summedLuminance)
+			{
+				selectedLightSample = i;
+				break;
+			}
+		}
+		
+		CDF_LightStruct lightSample = lightCandidates[selectedLightSample];
+		
+		initializeRayClosestHitPayload();
+		
+		direction = vec4(lightSample.positionToLightVector, 0);
+		origin = vec4(position.xyz, 0);
+		//tMax = currentSurfaceToLightTriangleVectorLength;
+		
+		traceRayEXT(
+			topLevelAS,     // acceleration structure
+			rayFlags,       // rayFlags
+			0xFF,           // cullMask
+			0,              // sbtRecordOffset
+			0,              // sbtRecordStride
+			0,              // missIndex
+			origin.xyz,     // ray origin
+			tMin,           // ray min range
+			direction.xyz,  // ray direction
+			tMax,           // ray max range
+			0               // hitPayload (location = 0)
+		);
+		
+			// check the hit object;
+		
+		int lightprimid = rayClosestHitPayload.primitiveId;
+		int lightinstid = rayClosestHitPayload.instanceId;
+		vec3 lightbary = rayClosestHitPayload.barycentrics;
+		
+		uvec3 lightindices = getIndices(lightprimid, lightinstid);
+
+		if(lightindices == lightSample.indices){
+			vec3 albedo = txcolor.xyz + fbcolor.xyz;
+			summedPixelColor = albedo * lightSample.lightValue;
+		}
+			
+	}
+
 	imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(summedPixelColor, 0));
 }

@@ -114,6 +114,7 @@ float MinorMatrix(float m[16], int r0, int r1, int r2, int c0, int c1, int c2);
 void AdjointMatrix(float m[16], float adjOut[16]);
 float DetMatrix(float m[16]);
 void InverseMatrix(float m[16], float invOut[16]);
+void TransposeMatrix(float m[16], float invOut[16]);
 
 #define BOX_ON_PLANE_SIDE(emins, emaxs, p)	\
 	(((p)->type < 3)?						\

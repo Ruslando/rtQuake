@@ -159,6 +159,7 @@ typedef struct msurface_s
 	mtexinfo_t	*texinfo;
 
 	int		vbo_firstvert;		// index of this surface's first vert in the VBO
+	int 	vbo_numprimitives;	// the cumulative number of triangles allocated in the VBO 
 
 // lighting info
 	int			dlightframe;
@@ -512,6 +513,9 @@ typedef struct qmodel_s
 	VkBuffer		index_buffer;
 	struct glheap_s *	index_heap;
 	struct glheapnode_s *	index_heap_node;
+	VkBuffer		primitive_buffer;
+	struct glheap_s* primitive_heap;
+	struct glheapnode_s* primitive_heap_node;
 	int				vboindexofs;    // offset in vbo of the hdr->numindexes unsigned shorts
 	int				vboxyzofs;      // offset in vbo of hdr->numposes*hdr->numverts_vbo meshxyz_t
 	int				vbostofs;       // offset in vbo of hdr->numverts_vbo meshst_t

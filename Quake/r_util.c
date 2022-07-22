@@ -18,6 +18,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 */
 
 #include "quakedef.h"
+#include "..\Windows\VisualStudio\r_util.h"
 
 uint32_t
 get_memory_type(uint32_t mem_req_type_bits, VkMemoryPropertyFlags mem_prop)
@@ -199,4 +200,4 @@ fail_buffer:
 	buf->memory = VK_NULL_HANDLE;
 	buf->size = 0;
 	return result;
-}
+}	

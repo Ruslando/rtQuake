@@ -167,7 +167,7 @@ copy "$(SolutionDir)\..\SDL2\lib\*.dll" "$(TargetDir)"</Command>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <PrecompiledHeader />
-      <WarningLevel>Level4</WarningLevel>
+      <WarningLevel>Level1</WarningLevel>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <CompileAs>CompileAsC</CompileAs>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -317,7 +317,6 @@ copy "$(SolutionDir)\..\SDL2\lib64\*.dll" "$(TargetDir)"</Command>
     <ClCompile Include="..\..\Shaders\Compiled\gen_ray.c" />
     <ClCompile Include="..\..\Shaders\Compiled\hit_ray.c" />
     <ClCompile Include="..\..\Shaders\Compiled\miss_ray.c" />
-    <ClCompile Include="..\..\Shaders\Compiled\shadow_miss_ray.c" />
     <ClCompile Include="..\..\Shaders\Compiled\postprocess_frag.c" />
     <ClCompile Include="..\..\Shaders\Compiled\postprocess_vert.c" />
     <ClCompile Include="..\..\Shaders\Compiled\screen_effects_10bit_comp.c" />

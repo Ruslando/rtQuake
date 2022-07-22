@@ -63,9 +63,10 @@ R_ChainSurface -- ericw -- adds the given surface to its texture chain
 ================
 */
 void R_ChainSurface (msurface_t *surf, texchain_t chain)
-{
+{	
 	surf->texturechain = surf->texinfo->texture->texturechains[chain];
 	surf->texinfo->texture->texturechains[chain] = surf;
+	
 }
 
 /*
@@ -242,6 +243,66 @@ void R_MarkVisSurfacesSIMD (byte *vis)
 		}
 	}
 }
+
+/*
+===============
+R_MarkVisSurfacesSIMD
+===============
+*/
+void RT_MarkVisSurfacesSIMD(byte* vis)
+{
+	msurface_t* surf;
+	int			i, j, k;
+	int			numleafs = cl.worldmodel->numleafs;
+	int			numsurfaces = cl.worldmodel->numsurfaces;
+
+	memset(cl.worldmodel->surfvis, 0, (cl.worldmodel->numsurfaces + 7) >> 3);
+
+	// iterate through leaves, marking surfaces
+	for (i = 0; i < numleafs; i += 8)
+	{
+		int mask = vis[i >> 3];
+		if (mask == 0)
+			continue;
+
+		for (j = 0; j < 8 && i + j < numleafs; j++)
+		{
+
+			mleaf_t* leaf = &cl.worldmodel->leafs[1 + i + j];
+			if (leaf->contents != CONTENTS_SKY || r_oldskyleaf.value)
+			{
+				byte* surfmask = cl.worldmodel->surfvis;
+				int nummarksurfaces = leaf->nummarksurfaces;
+				int* marksurfaces = leaf->firstmarksurface;
+				for (k = 0; k < nummarksurfaces; k++)
+				{
+					int index = marksurfaces[k];
+					surfmask[index >> 3] |= 1 << (index & 7);
+				}
+			}
+
+			// add static models
+			if (leaf->efrags)
+				R_StoreEfrags(&leaf->efrags);
+		}
+	}
+
+	vis = cl.worldmodel->surfvis;
+	for (i = 0; i < numsurfaces; i += 8)
+	{
+		int mask = vis[i >> 3];
+		if (mask == 0)
+			continue;
+
+		for (j = 0; j < 8; j++)
+		{
+			surf = &cl.worldmodel->surfaces[i + j];
+			rs_brushpolys++; //count wpolys here
+			surf->visframe = r_visframecount;
+			R_ChainSurface(surf, chain_world);
+		}
+	}
+}
 #endif // defined(USE_SIMD)
 
 /*
@@ -326,7 +387,7 @@ void R_MarkSurfaces (void)
 	// iterate through leaves, marking surfaces
 #if defined(USE_SIMD)
 	if (use_simd)
-		R_MarkVisSurfacesSIMD(vis);
+		RT_MarkVisSurfacesSIMD(vis);
 	else
 #endif
 	  R_MarkVisSurfaces(vis);
@@ -341,6 +402,11 @@ void R_MarkSurfaces (void)
 static unsigned int R_NumTriangleIndicesForSurf (msurface_t *s)
 {
 	return 3 * (s->numedges - 2);
+}
+
+static unsigned int R_NumTriangleIndicesForSurfStatic(msurface_t* s)
+{
+	return 3 * (s->numedges - 1);
 }
 
 /*
@@ -358,6 +424,26 @@ static void R_TriangleAndTextureIndicesForSurf(msurface_t* s, uint32_t* indices,
 	{
 		indices[num_vbo_indices++] = s->vbo_firstvert;
 		indices[num_vbo_indices++] = s->vbo_firstvert + i - 1;
+		indices[num_vbo_indices++] = s->vbo_firstvert + i;
+
+	}
+}
+
+/*
+================
+R_TriangleAndTextureIndicesForSurf
+
+Writes out the triangle indices needed to draw s as a triangle list.
+The number of indices it will write is given by R_NumTriangleIndicesForSurf.
+================
+*/
+static void R_TriangleAndTextureIndicesForSurfStatic(msurface_t* s, uint32_t* indices, int num_vbo_indices)
+{
+	int i;
+	for (i = 0; i < s->numedges; i++)
+	{
+		indices[num_vbo_indices++] = s->vbo_firstvert;
+		indices[num_vbo_indices++] = s->vbo_firstvert + i + 1;
 		indices[num_vbo_indices++] = s->vbo_firstvert + i;
 
 	}
@@ -583,7 +669,7 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 	uint32_t* index_data_pointer = (uint32_t*)malloc(16000 * sizeof(uint32_t));
 	
 	// copy brush vertices from buffer;
-		// Make buffer mappable or somehow gather data from data
+	// Make buffer mappable or somehow gather data from data
 	rt_vertex_t* vertex_data = (rt_vertex_t*)buffer_map(&vulkan_globals.rt_static_vertex_buffer_resource);
 	buffer_unmap(&vulkan_globals.rt_static_vertex_buffer_resource);
 
@@ -602,9 +688,6 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 			fullbright_enabled = false;
 
 		//R_ClearBatch();
-
-		/*int tx_imageview_index = -1;
-		int fb_imageview_index = -1;*/
 
 		bound = false;
 		for (s = t->texturechains[chain]; s; s = s->texturechain)
@@ -628,23 +711,54 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 				bound = true;
 			}
 
-			// Batch surface
-			{
-				int num_surf_indices;
+			gltexture_t	*tx = s->texinfo->texture->gltexture;
+			gltexture_t	*fb = s->texinfo->texture->fullbright;
 
-				num_surf_indices = R_NumTriangleIndicesForSurf(s);
+			int tx_imageview_index = tx ? tx->heap_node_index : -1;
+			int fb_imageview_index = fb ? fb->heap_node_index : -1;
 
-				R_TriangleAndTextureIndicesForSurf(s, index_data_pointer, index_count);	// cumulative index count of previous models (offset) + current index_count
+			int tx_index = -1;
+			int fb_index = -1;
 
-				for (int j = index_count; j < index_count + num_surf_indices; j++) {
-					int index = index_data_pointer[j] - s->vbo_firstvert + index_offset;
-					index_data_pointer[j] = index;
+			if (tx) {
+				glheapnode_t* txheapnode = tx->heap_node;
+
+				while (txheapnode->prev != NULL) {
+					txheapnode = txheapnode->prev;
+					tx_index++;
 				}
-
-				index_count += num_surf_indices;
-				vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count += s->numedges;
-				index_offset = vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count;
 			}
+
+			if (fb) {
+				glheapnode_t* fbheapnode = fb->heap_node;
+
+				while (fbheapnode->prev != NULL) {
+					fbheapnode = fbheapnode->prev;
+					fb_index++;
+				}
+			}
+
+			if (tx_index != tx_imageview_index) {
+				tx_imageview_index = tx_index;
+			}
+
+			if (fb_index != fb_imageview_index) {
+				fb_imageview_index = fb_index;
+			}
+
+			// Batch surface
+			int num_surf_indices = R_NumTriangleIndicesForSurf(s);
+
+			R_TriangleAndTextureIndicesForSurf(s, index_data_pointer, index_count);	// cumulative index count of previous models (offset) + current index_count
+
+			for (int j = index_count; j < index_count + num_surf_indices; j++) {
+				int index = index_data_pointer[j] - s->vbo_firstvert + index_offset;
+				index_data_pointer[j] = index;
+			}
+
+			index_count += num_surf_indices;
+			vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count += s->numedges;
+			index_offset = vulkan_globals.rt_blas_data_pointer[current_blas_index].vertex_count;
 
 			rt_vertex_t* brush_vertex_data = (rt_vertex_t*)malloc(s->numedges * sizeof(rt_vertex_t));
 
@@ -674,6 +788,99 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 			byte* vertices = R_VertexAllocate(s->numedges * sizeof(rt_vertex_t), &dynamic_vertex_buffer, &dynamic_vertex_buffer_offset);
 			memcpy(vertices, brush_vertex_data, s->numedges * sizeof(rt_vertex_t));
 			
+			// primitive calculation
+
+			uint32_t allocate_size = sizeof(rt_primitive_t) * (num_surf_indices / 3);
+			uint32_t offset = sizeof(rt_primitive_t) * vulkan_globals.rt_dynamic_primitive_data_count;
+
+			rt_primitive_t* rt_primitives_pointer = malloc(allocate_size);
+
+			int bruh_idk = 0;
+			int primitive_data_count_pre_model = vulkan_globals.rt_dynamic_primitive_data_count;
+			int light_primitive_data_index_count_pre_model = vulkan_globals.rt_dynamic_light_primitive_count;
+
+			int totalLightArea = 0;
+
+			for (int j = 2; j < num_surf_indices; j += 3) {
+				uint32_t primitive_index = (j - 2) / 3;
+
+				uint32_t index0 = (uint32_t)index_data_pointer[index_count - num_surf_indices + j - 2];
+				uint32_t index1 = (uint32_t)index_data_pointer[index_count - num_surf_indices + j - 1];
+				uint32_t index2 = (uint32_t)index_data_pointer[index_count - num_surf_indices + j];
+
+				if (j == 2) {
+					bruh_idk = index0;
+				}
+
+				rt_vertex_t verts[3] = { brush_vertex_data[index0 - bruh_idk], brush_vertex_data[index1 - bruh_idk],  brush_vertex_data[index2 - bruh_idk] };
+
+				rt_primitives_pointer[primitive_index].tx_index = tx_imageview_index;
+				rt_primitives_pointer[primitive_index].fb_index = fb_imageview_index;
+				rt_primitives_pointer[primitive_index].material_index = fb_imageview_index != -1 ? 1 : 0;
+
+				// normal calculation
+
+				vec3_t lv1 = { verts[0].vertex_pos[0], verts[0].vertex_pos[1], verts[0].vertex_pos[2] };
+				vec3_t lv2 = { verts[1].vertex_pos[0], verts[1].vertex_pos[1], verts[1].vertex_pos[2] };
+				vec3_t lv3 = { verts[2].vertex_pos[0], verts[2].vertex_pos[1], verts[2].vertex_pos[2] };
+
+				vec3_t lv2mlv1; _VectorSubtract(lv2, lv1, lv2mlv1);
+				vec3_t lv3mlv1; _VectorSubtract(lv3, lv1, lv3mlv1);
+				vec3_t lv3mlv2; _VectorSubtract(lv3, lv2, lv3mlv2);
+
+				vec3_t lightNormal; CrossProduct(lv2mlv1, lv3mlv1, lightNormal);
+				VectorNormalize(lightNormal);
+
+				rt_primitives_pointer[primitive_index].geometric_normal[0] = lightNormal[0];
+				rt_primitives_pointer[primitive_index].geometric_normal[1] = lightNormal[1];
+				rt_primitives_pointer[primitive_index].geometric_normal[2] = lightNormal[2];
+
+				// triangle area calculation
+
+				float a = VectorLength(lv2mlv1);
+				float b = VectorLength(lv3mlv1);
+				float c = VectorLength(lv3mlv2);
+
+				float triangleArea = abs(0.25f * sqrt((a + b + c) * (-a + b + c) * (a - b + c) * (a + b - c)));
+				rt_primitives_pointer[primitive_index].total_triangle_area = triangleArea;
+
+				if (fb_imageview_index != -1) {
+
+					// brightest perceived color
+					rt_primitives_pointer[primitive_index].brightest_perceived_light_color[0] = s->texinfo->texture->fullbright->brightest_color[0]; // TODO Calculate color
+					rt_primitives_pointer[primitive_index].brightest_perceived_light_color[1] = s->texinfo->texture->fullbright->brightest_color[1]; // TODO Calculate color
+					rt_primitives_pointer[primitive_index].brightest_perceived_light_color[2] = s->texinfo->texture->fullbright->brightest_color[2]; // TODO Calculate color
+
+					// light area percentage
+					rt_primitives_pointer[primitive_index].light_area_percentage = s->texinfo->texture->fullbright->light_coverage_percentage;
+
+					if (triangleArea > 0) {
+						vulkan_globals.rt_dynamic_light_primitive_index_data_pointer[vulkan_globals.rt_dynamic_light_primitive_count] = primitive_data_count_pre_model + primitive_index;
+						vulkan_globals.rt_dynamic_light_primitive_count++;
+					}
+				}
+				else {
+					rt_primitives_pointer[primitive_index].brightest_perceived_light_color[0] = 0;
+					rt_primitives_pointer[primitive_index].brightest_perceived_light_color[1] = 0;
+					rt_primitives_pointer[primitive_index].brightest_perceived_light_color[2] = 0;
+
+					rt_primitives_pointer[primitive_index].light_area_percentage = 0.0f;
+				}
+			}
+
+			if (vulkan_globals.rt_dynamic_primitive_data_pointer != NULL && rt_primitives_pointer != NULL) {
+				memcpy((byte*)vulkan_globals.rt_dynamic_primitive_data_pointer + offset, rt_primitives_pointer, allocate_size);
+			}
+
+			vulkan_globals.rt_dynamic_primitive_data_count += num_surf_indices / 3;
+
+			if (fb)
+			{
+				vulkan_globals.rt_dynamic_light_surface_data_pointer[vulkan_globals.rt_dynamic_light_surface_count] = light_primitive_data_index_count_pre_model + vulkan_globals.rt_dynamic_light_primitive_count - 1;
+				vulkan_globals.rt_dynamic_light_surface_count++;
+			}
+			
+
 			free(brush_vertex_data);
 
 			rs_brushpasses++;
@@ -695,6 +902,139 @@ void RT_LoadBrushModelIndices(qmodel_t* model, entity_t* ent, texchain_t chain, 
 	memcpy(indices, index_data_pointer, index_count * sizeof(uint32_t));
 
 	free(index_data_pointer);
+}
+
+/*
+================
+R_DrawTextureChains_Multitexture
+================
+*/
+void RT_LoadLightMeshTextureChains(qmodel_t* model, entity_t* ent, texchain_t chain)
+{
+	int			i;
+	msurface_t* s;
+	texture_t* t;
+	//qboolean	alpha_test = false;
+	//rt_vertex_t* vertex_data = (rt_vertex_t*)buffer_map(&vulkan_globals.rt_static_vertex_buffer_resource);
+
+	//int index_count = 0;
+	int primitive_count = 0;
+	int surface_count = 0;
+
+	uint32_t* primitive_index_data_pointer = (uint32_t*)malloc(16000 * sizeof(uint32_t));
+	uint32_t* primitive_index_offset_data_pointer = (uint32_t*)malloc(16000 * sizeof(uint32_t));
+
+	for (i = 0; i < model->numtextures; ++i)
+	{
+		t = model->textures[i];
+
+		if (!t || !t->texturechains[chain] || t->texturechains[chain]->flags & (SURF_DRAWTILED | SURF_NOTEXTURE))
+			continue;
+
+		gltexture_t* fullbright = R_TextureAnimation(t, ent != NULL ? ent->frame : 0)->fullbright;
+
+		if (fullbright) {
+
+			glheapnode_t* fbheapnode = fullbright->heap_node;
+
+			int fb_imageview_index = -1;
+
+			while (fbheapnode->prev != NULL) {
+				fbheapnode = fbheapnode->prev;
+				fb_imageview_index++;
+			}
+
+			for (s = t->texturechains[chain]; s; s = s->texturechain)
+			{
+				//int num_surf_indices = R_NumTriangleIndicesForSurf(s);
+				//R_TriangleAndTextureIndicesForSurf(s, primitive_index_data_pointer, index_count);	// cumulative index count of previous models (offset) + current index_count
+				
+				for (int li = 0; li < s->numedges - 2; li++) {
+					primitive_index_data_pointer[li + primitive_count] = (uint32_t)(s->vbo_numprimitives) + li;
+				}
+				primitive_count += s->numedges - 2;
+
+				primitive_index_offset_data_pointer[surface_count] = primitive_count - 1;
+				surface_count++;
+
+				//free(lightprimitiveindices);
+
+				//float totalArea = 0;
+
+				//for (int j = 0; j < num_surf_indices / 3; j++) {
+				//	/*rt_vertex_t current_vertex = vertex_data[j];
+				//	rt_vertex_t current_vertex2 = vertex_data[j+1];
+				//	rt_vertex_t current_vertex3 = vertex_data[j+2];*/
+				//	
+				//	int i1 = primitive_index_data_pointer[index_count + (j * 3)];
+				//	int i2 = primitive_index_data_pointer[index_count + (j * 3) + 1];
+				//	int i3 = primitive_index_data_pointer[index_count + (j * 3) + 2];
+
+				//	vec3_t current_vertex = { vertex_data[i1].vertex_pos[0], vertex_data[i1].vertex_pos[1], vertex_data[i1].vertex_pos[2] };
+				//	vec3_t current_vertex2 = { vertex_data[i2].vertex_pos[0], vertex_data[i2].vertex_pos[1], vertex_data[i2].vertex_pos[2] };
+				//	vec3_t current_vertex3 = { vertex_data[i3].vertex_pos[0], vertex_data[i3].vertex_pos[1], vertex_data[i3].vertex_pos[2] };
+
+				//	vec3_t sideA;
+				//	vec3_t sideB;
+				//	vec3_t sideC;
+
+				//	VectorSubtract(current_vertex2, current_vertex, sideA);
+				//	VectorSubtract(current_vertex3, current_vertex, sideB);
+				//	VectorSubtract(current_vertex3, current_vertex2, sideC);
+
+				//	float lightTriangleSideA = VectorLength(sideA);
+				//	float lightTriangleSideB = VectorLength(sideB);
+				//	float lightTriangleSideC = VectorLength(sideC);
+				//		
+				//	float lightTriangleSurfaceArea = 0.25 * sqrt( 
+				//	(lightTriangleSideA + lightTriangleSideB + lightTriangleSideC)
+				//	* (-lightTriangleSideA + lightTriangleSideB + lightTriangleSideC)
+				//	* (lightTriangleSideA - lightTriangleSideB + lightTriangleSideC)
+				//	* (lightTriangleSideA + lightTriangleSideB - lightTriangleSideC));
+
+				//	totalArea += lightTriangleSurfaceArea;
+				//}
+
+				//index_count += num_surf_indices;
+
+				//// Texture swapping for static models
+				//for (int j = 0; j < s->numedges; j++) {
+				//	int index = j + s->vbo_firstvert;
+				//	// retrieves vertex entry for current index;
+				//	rt_vertex_t current_vertex = vertex_data[index];
+
+				//	// swaps the fullbright texture index gathered from the texture animation
+				//	current_vertex.fb_index = fb_imageview_index;
+
+				//	// inserts the new data back to the vertex buffer;
+				//	vertex_data[index] = current_vertex;
+				//}
+			}
+		}
+	}
+
+
+	//light primitive indices
+	VkBuffer dynamic_index_buffer;
+	VkDeviceSize dynamic_index_buffer_offset;
+	byte* indices = R_IndexAllocate(primitive_count * sizeof(uint32_t), &dynamic_index_buffer, &dynamic_index_buffer_offset);
+	memcpy(indices, primitive_index_data_pointer, primitive_count * sizeof(uint32_t));
+
+	vulkan_globals.rt_light_data.static_light_buffer_offset = dynamic_index_buffer_offset;
+	vulkan_globals.rt_light_data.static_light_count = primitive_count;
+
+
+	// light primitive offset indices
+	indices = R_IndexAllocate(surface_count * sizeof(uint32_t), &dynamic_index_buffer, &dynamic_index_buffer_offset);
+	memcpy(indices, primitive_index_offset_data_pointer, surface_count * sizeof(uint32_t));
+
+	vulkan_globals.rt_light_data.static_light_surface_buffer_offset = dynamic_index_buffer_offset;
+	vulkan_globals.rt_light_data.static_light_surface_count = surface_count;
+
+	free(primitive_index_data_pointer);
+	free(primitive_index_offset_data_pointer);
+
+	//buffer_unmap(&vulkan_globals.rt_static_vertex_buffer_resource);
 }
 
 /*
@@ -810,14 +1150,12 @@ void R_DrawWorld (void)
 	R_EndDebugUtilsLabel ();
 }
 
-void RT_LoadDynamicWorldIndices() {
+void RT_LoadWorldMeshLightTriangles() {
 	if (!r_drawworld_cheatsafe)
 		return;
-	R_BeginDebugUtilsLabel("Dynamic World Indices");
+	R_BeginDebugUtilsLabel("World Light Triangles");
 	// unlike this method says, world indices are dynamic. might change in future
-	float mvp[16];
-	memset(mvp, 1, sizeof(mvp));
-	RT_LoadBrushModelIndices(cl.worldmodel, NULL, chain_world, mvp);
+	RT_LoadLightMeshTextureChains(cl.worldmodel, NULL, chain_world);
 	R_EndDebugUtilsLabel();
 }
 

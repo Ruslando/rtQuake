@@ -75,5 +75,7 @@ extern unsigned char shadow_miss_ray_spv[];
 extern int shadow_miss_ray_spv_size;
 extern unsigned char hit_ray_spv[];
 extern int hit_ray_spv_size;
+extern unsigned char light_hit_ray_spv[];
+extern int light_hit_ray_spv_size;
 
 #endif
